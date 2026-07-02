@@ -5,7 +5,9 @@ import android.graphics.PixelFormat
 import android.os.Build
 import android.view.Gravity
 import android.view.KeyEvent
+import android.view.View
 import android.view.WindowManager
+import android.widget.FrameLayout
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
 import androidx.activity.OnBackPressedDispatcher
@@ -39,11 +41,15 @@ import javax.inject.Singleton
  * (Lifecycle / ViewModelStore / SavedStateRegistry / OnBackPressedDispatcher) so that state,
  * remembered values and BackHandler all work.
  *
- * Back handling: there is no Activity to forward the Back key into the Compose
- * [OnBackPressedDispatcher], and on API 33+ the platform can route Back through the window's
- * [OnBackInvokedDispatcher]. [BackHandlingComposeView] bridges both paths into the overlay's
- * own [OnBackPressedDispatcher] so the [FocusOverlayScreen] BackHandler reliably consumes Back
- * and it never leaks to the app behind the overlay.
+ * Back handling: [ComposeView] is `final` and cannot be subclassed, so the overlay's root is a
+ * [BackHandlingOverlayLayout] (a [FrameLayout]) that hosts a plain [ComposeView] child and bridges
+ * Back into the overlay's own [OnBackPressedDispatcher]:
+ *
+ *  - On API < 33 (and API 33+ without predictive back) Back arrives as a KEYCODE_BACK [KeyEvent];
+ *    [FrameLayout.dispatchKeyEvent] intercepts and consumes it.
+ *  - On API 33+ with predictive back, an [OnBackInvokedCallback] on the window's dispatcher fires.
+ *
+ * Either way Back is consumed by the overlay window and never leaks to the app behind it.
  *
  * Compliance: the overlay is only ever shown over a user-selected distracting app. The window is
  * focusable (so Back can be consumed) but the platform Home / Recents affordances remain fully
@@ -57,11 +63,12 @@ class OverlayManager @Inject constructor(
     private val windowManager: WindowManager =
         context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
-    private var composeView: ComposeView? = null
+    // The root view actually attached to the WindowManager (a FrameLayout hosting a ComposeView).
+    private var overlayView: View? = null
     private var overlayOwner: OverlayViewLifecycleOwner? = null
 
     val isShowing: Boolean
-        get() = composeView != null
+        get() = overlayView != null
 
     /**
      * Displays the focus overlay bound to [stateFlow]. Safe to call repeatedly; a second call while
@@ -76,40 +83,55 @@ class OverlayManager @Inject constructor(
         val owner = OverlayViewLifecycleOwner()
         try {
             owner.onStart()
-            // Route hardware/gesture Back into the Compose dispatcher owned by this window so the
-            // BackHandler inside FocusOverlayScreen fires (there is no Activity to do this for us).
-            val view = BackHandlingComposeView(context) {
+
+            // Root container that consumes Back. Route hardware/gesture Back into the Compose
+            // dispatcher owned by this window so the BackHandler inside FocusOverlayScreen fires
+            // (there is no Activity to do this for us); if nothing is registered, Back is still
+            // consumed at the view level and cannot reach the app behind the overlay.
+            val root = BackHandlingOverlayLayout(context) {
                 owner.onBackPressedDispatcher.onBackPressed()
             }
-            view.setViewTreeLifecycleOwner(owner)
-            view.setViewTreeViewModelStoreOwner(owner)
-            view.setViewTreeSavedStateRegistryOwner(owner)
-            view.setViewTreeOnBackPressedDispatcherOwner(owner)
-            view.setContent {
-                val state by stateFlow.collectAsState()
-                FocusOverlayScreen(
-                    state = state,
-                    triggeringAppLabel = triggeringLabel,
-                    onEndEarly = onEndEarly
-                )
+            // Owners are set on the root; the child ComposeView resolves them by walking up the tree.
+            root.setViewTreeLifecycleOwner(owner)
+            root.setViewTreeViewModelStoreOwner(owner)
+            root.setViewTreeSavedStateRegistryOwner(owner)
+            root.setViewTreeOnBackPressedDispatcherOwner(owner)
+
+            val composeView = ComposeView(context).apply {
+                setContent {
+                    val state by stateFlow.collectAsState()
+                    FocusOverlayScreen(
+                        state = state,
+                        triggeringAppLabel = triggeringLabel,
+                        onEndEarly = onEndEarly
+                    )
+                }
             }
-            windowManager.addView(view, buildLayoutParams())
-            composeView = view
+            root.addView(
+                composeView,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            )
+
+            windowManager.addView(root, buildLayoutParams())
+            overlayView = root
             overlayOwner = owner
         } catch (t: Throwable) {
             // If the window could not be added (e.g. permission revoked mid-session) fail safe and
             // never leave a half-attached view behind.
             runCatching { owner.onStop() }
-            composeView = null
+            overlayView = null
             overlayOwner = null
         }
     }
 
     /** Removes the overlay window if present. Guarded against double-remove / missing window. */
     fun hideOverlay() {
-        val view = composeView
+        val view = overlayView
         val owner = overlayOwner
-        composeView = null
+        overlayView = null
         overlayOwner = null
         if (view != null) {
             runCatching { windowManager.removeView(view) }
@@ -118,10 +140,10 @@ class OverlayManager @Inject constructor(
     }
 
     private fun buildLayoutParams(): WindowManager.LayoutParams {
-        // Focusable window (no FLAG_NOT_FOCUSABLE) so the ComposeView receives the back key and our
-        // BackHandler can consume it. FLAG_NOT_TOUCH_MODAL keeps behaviour predictable; since the
-        // window is MATCH_PARENT it captures all in-app touches. FLAG_KEEP_SCREEN_ON keeps the
-        // screen awake for the duration of the challenge.
+        // Focusable window (no FLAG_NOT_FOCUSABLE) so the overlay receives the Back key and can
+        // consume it. FLAG_NOT_TOUCH_MODAL keeps behaviour predictable; since the window is
+        // MATCH_PARENT it captures all in-app touches. FLAG_KEEP_SCREEN_ON keeps the screen awake
+        // for the duration of the challenge.
         val flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
             WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
         return WindowManager.LayoutParams(
@@ -136,28 +158,28 @@ class OverlayManager @Inject constructor(
     }
 
     /**
-     * [ComposeView] that guarantees the Back button/gesture is consumed by the overlay window
-     * regardless of API level or whether the app has opted into the predictive-back
-     * [OnBackInvokedDispatcher]:
-     *
-     *  - On API < 33 (and on API 33+ when predictive back is not enabled) Back arrives as a
-     *    KEYCODE_BACK [KeyEvent]; [dispatchKeyEvent] intercepts it and forwards to [onBack].
-     *  - On API 33+ with predictive back enabled, KEYCODE_BACK is not delivered as a key event, so
-     *    an [OnBackInvokedCallback] is registered on the window's dispatcher instead.
-     *
-     * Exactly one of these paths is active for a given configuration, so [onBack] fires once.
+     * [FrameLayout] root for the overlay that guarantees the Back button/gesture is consumed by the
+     * overlay window regardless of API level or predictive-back opt-in. It hosts a plain
+     * [ComposeView] child (Compose's [ComposeView] is final and cannot be subclassed directly).
      */
-    private class BackHandlingComposeView(
+    private class BackHandlingOverlayLayout(
         context: Context,
         private val onBack: () -> Unit
-    ) : ComposeView(context) {
+    ) : FrameLayout(context) {
 
         // Typed as Any? so the class verifies on API < 33 where OnBackInvokedCallback is absent;
         // it is only ever created/touched inside an SDK_INT >= 33 guard.
         private var registeredBackCallback: Any? = null
 
+        init {
+            // Must be focusable to receive the Back key on all API levels.
+            isFocusable = true
+            isFocusableInTouchMode = true
+        }
+
         override fun onAttachedToWindow() {
             super.onAttachedToWindow()
+            requestFocus()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 val dispatcher = findOnBackInvokedDispatcher()
                 if (dispatcher != null) {
