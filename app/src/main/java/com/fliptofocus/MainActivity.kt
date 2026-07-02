@@ -1,6 +1,7 @@
 package com.fliptofocus
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -8,6 +9,25 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.fliptofocus.domain.repository.AppConfigRepository
@@ -24,12 +44,11 @@ import javax.inject.Inject
  * Single-activity host for the whole Compose UI.
  *
  * Responsibilities:
- *  - Host [AppNavigation], which decides whether to open onboarding or home
- *    based on the current permission state.
- *  - Request the POST_NOTIFICATIONS runtime permission on API 33+ (the ongoing
- *    foreground-service notification needs it to be visible).
- *  - Expose start/stop helpers so screens can (re)start the blocking service
- *    through simple callbacks rather than touching the service class directly.
+ *  - Host [AppNavigation] (onboarding vs. home based on permission state).
+ *  - Request POST_NOTIFICATIONS on API 33+ for the ongoing service notification.
+ *  - Re-arm the blocking service when the app is opened (foreground-safe).
+ *  - If the previous run crashed, surface the captured stack trace and skip auto-starting the
+ *    service this launch so the app cannot get stuck in a crash loop.
  */
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -37,22 +56,40 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var appConfigRepository: AppConfigRepository
 
+    private var recentlyCrashed = false
+
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) {
-            // The result is intentionally not acted upon here: notifications are a
-            // nice-to-have surface for the ongoing service, and blocking still
-            // functions if the user declines. Re-prompting is avoided per policy.
+            // Notifications are a nice-to-have surface for the ongoing service; blocking still
+            // works if declined. Not re-prompted, per policy.
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        val prefs = getSharedPreferences(FlipToFocusApp.CRASH_PREFS, Context.MODE_PRIVATE)
+        val crashTrace = prefs.getString(FlipToFocusApp.KEY_TRACE, null)
+        val crashAgeMs = System.currentTimeMillis() - prefs.getLong(FlipToFocusApp.KEY_TIME, 0L)
+        // Only treat it as "recent" (and thus break the loop) if it happened moments ago.
+        recentlyCrashed = crashTrace != null && crashAgeMs in 0..RECENT_CRASH_WINDOW_MS
+
         maybeRequestNotificationPermission()
         setContent {
             FlipToFocusTheme {
+                var trace by remember { mutableStateOf(crashTrace) }
                 AppNavigation(
                     startService = ::startBlockingService,
                     stopService = ::stopBlockingService
                 )
+                trace?.let { captured ->
+                    CrashReportDialog(
+                        trace = captured,
+                        onDismiss = {
+                            prefs.edit().clear().apply()
+                            trace = null
+                        }
+                    )
+                }
             }
         }
     }
@@ -63,13 +100,12 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Resumes protection whenever the user opens the app: if blocking is enabled and both
-     * permissions are present, (re)start the service. Android can refuse to restart a foreground
-     * service from the background, so this foreground-triggered restart is the reliable way to
-     * bring blocking back after the system stopped the service. It never starts while blocking is
-     * off, so the persistent notification is never shown misleadingly.
+     * Resumes protection when the app is opened, if blocking is enabled and permissions are
+     * present. Skipped right after a crash so the app can open and show the report instead of
+     * immediately restarting the (possibly crashing) service.
      */
     private fun reArmBlockingIfEnabled() {
+        if (recentlyCrashed) return
         lifecycleScope.launch {
             val config = runCatching { appConfigRepository.getConfig() }.getOrNull() ?: return@launch
             val permitted = PermissionUtils.hasUsageAccess(this@MainActivity) &&
@@ -92,17 +128,61 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Starts (or refreshes) the foreground blocking service. */
+    /** Starts (or refreshes) the foreground blocking service. Never throws. */
     fun startBlockingService() {
-        val intent = Intent(this, AppBlockerService::class.java)
-            .setAction(Constants.ACTION_START)
-        ContextCompat.startForegroundService(this, intent)
+        runCatching {
+            val intent = Intent(this, AppBlockerService::class.java)
+                .setAction(Constants.ACTION_START)
+            ContextCompat.startForegroundService(this, intent)
+        }
     }
 
-    /** Signals the blocking service to tear itself down. */
+    /** Signals the blocking service to tear itself down. Never throws. */
     fun stopBlockingService() {
-        val intent = Intent(this, AppBlockerService::class.java)
-            .setAction(Constants.ACTION_STOP)
-        ContextCompat.startForegroundService(this, intent)
+        runCatching {
+            val intent = Intent(this, AppBlockerService::class.java)
+                .setAction(Constants.ACTION_STOP)
+            ContextCompat.startForegroundService(this, intent)
+        }
     }
+
+    private companion object {
+        const val RECENT_CRASH_WINDOW_MS = 60_000L
+    }
+}
+
+@Composable
+private fun CrashReportDialog(trace: String, onDismiss: () -> Unit) {
+    val clipboard = LocalClipboardManager.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("FlipToFocus hit an error") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 380.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Text(
+                    text = "The last run crashed. Please tap Copy and send this to the developer:",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = trace,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { clipboard.setText(AnnotatedString(trace)) }) {
+                Text("Copy")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Dismiss")
+            }
+        }
+    )
 }

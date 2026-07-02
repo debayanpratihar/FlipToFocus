@@ -22,6 +22,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.isActive
@@ -75,17 +76,16 @@ class AppBlockerService : LifecycleService() {
 
     override fun onCreate() {
         super.onCreate()
-        ensureNotificationChannel()
+        runCatching { ensureNotificationChannel() }
         foregroundStarted = enterForeground()
         if (!foregroundStarted) {
-            // Android 12+ can refuse a foreground-service start that originates from the background
-            // (a START_STICKY restart after a low-memory kill throws
-            // ForegroundServiceStartNotAllowedException). Bail out cleanly instead of crashing the
-            // process; blocking is re-armed the next time the user opens the app.
+            // Android 12+ can refuse a foreground-service start that originates from the background.
+            // Bail out cleanly instead of crashing the process; blocking is re-armed the next time
+            // the user opens the app (from the foreground, where the start is always allowed).
             stopSelf()
             return
         }
-        startCaches()
+        runCatching { startCaches() }
     }
 
     /** Enters the foreground, returning false if the platform refused (never throws). */
@@ -121,7 +121,10 @@ class AppBlockerService : LifecycleService() {
             // blocking being active while nothing is actually inspected.
             else -> reArmAfterStickyRestart()
         }
-        return START_STICKY
+        // NOT sticky: do not let the system resurrect this service in the background, where an
+        // Android 14 foreground-service start can fail with an uncatchable async exception and
+        // crash-loop. Blocking is re-armed from MainActivity.onResume when the app is opened.
+        return START_NOT_STICKY
     }
 
     override fun onDestroy() {
@@ -140,6 +143,7 @@ class AppBlockerService : LifecycleService() {
     private fun startCaches() {
         appConfigRepository.observeConfig()
             .onEach { cachedConfig = it }
+            .catch { /* never let a repository error crash the service */ }
             .launchIn(lifecycleScope)
         blockedAppRepository.observeBlockedApps()
             .onEach { apps ->
@@ -149,6 +153,7 @@ class AppBlockerService : LifecycleService() {
                     .map { it.packageName }
                     .toSet()
             }
+            .catch { /* never let a repository error crash the service */ }
             .launchIn(lifecycleScope)
     }
 
