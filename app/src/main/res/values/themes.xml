@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!--
+         Minimal platform manifest theme. The real theming is done in Compose
+         (UnDistractMeTheme). This exists only so the manifest can reference a
+         valid, action-bar-free theme without pulling in an XML UI dependency.
+    -->
+    <style name="Theme.UnDistractMe" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/surface_light</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+
+</resources>
