@@ -36,9 +36,12 @@ data class FocusSessionEntity(
 @Entity(tableName = "app_config")
 data class AppConfigEntity(
     @PrimaryKey val id: Int = 1,
+    val challengeType: String,
     val challengeDurationMinutes: Int,
     val requireFaceDown: Boolean,
     val motionTolerance: Float,
+    val shakeCount: Int,
+    val mathProblemCount: Int,
     val isBlockingEnabled: Boolean
 )
 
@@ -106,7 +109,7 @@ interface AppConfigDao {
 
 @Database(
     entities = [BlockedAppEntity::class, FocusSessionEntity::class, AppConfigEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class FlipToFocusDatabase : RoomDatabase() {

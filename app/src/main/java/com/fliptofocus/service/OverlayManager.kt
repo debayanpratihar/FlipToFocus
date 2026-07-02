@@ -77,7 +77,8 @@ class OverlayManager @Inject constructor(
     fun showOverlay(
         triggeringLabel: String,
         stateFlow: StateFlow<ChallengeState>,
-        onEndEarly: () -> Unit
+        onEndEarly: () -> Unit,
+        onMathAnswer: (Int) -> Unit = {}
     ) {
         if (isShowing) return
         val owner = OverlayViewLifecycleOwner()
@@ -103,7 +104,8 @@ class OverlayManager @Inject constructor(
                     FocusOverlayScreen(
                         state = state,
                         triggeringAppLabel = triggeringLabel,
-                        onEndEarly = onEndEarly
+                        onEndEarly = onEndEarly,
+                        onMathAnswer = onMathAnswer
                     )
                 }
             }

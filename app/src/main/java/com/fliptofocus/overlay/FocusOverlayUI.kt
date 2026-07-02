@@ -18,7 +18,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -37,29 +40,23 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.fliptofocus.domain.model.ChallengeType
 import com.fliptofocus.sensor.ChallengeState
 import java.util.Locale
 
 /**
- * Fully self-contained dark overlay shown on top of a distracting app while the
- * offline sensor challenge is in progress. It intentionally establishes its own
- * [MaterialTheme] dark color scheme so it does not depend on the hosting activity
- * theme (this is rendered from a service window, not an Activity).
+ * Fully self-contained dark overlay shown on top of a distracting app while an offline unlock
+ * challenge is in progress. It establishes its own [MaterialTheme] dark color scheme so it does not
+ * depend on the hosting activity theme (this is rendered from a service window, not an Activity).
  *
- * Compliance note: the overlay enforces ONLY the sensor challenge. Back is consumed
- * so the overlay is not trivially dismissed, but a low-emphasis "End session early"
- * control (with confirmation) always preserves user autonomy via [onEndEarly].
+ * It renders whichever challenge [ChallengeState.type] is active (flip / wait / shake / math).
  *
- * The confirmation is rendered INLINE inside this same overlay ComposeView rather
- * than as a Compose Dialog/AlertDialog. A Dialog would spin up its own separate
- * top-level window using this ComposeView's application context, which has no
- * Activity token and would crash the service overlay with a
- * WindowManager.BadTokenException. Keeping the confirmation in-window means the
- * single WindowManager window OverlayManager added is the only one that ever
- * exists.
+ * Compliance: the overlay enforces ONLY the challenge. Back is consumed so it is not trivially
+ * dismissed, but a low-emphasis "End session early" control (with confirmation) always preserves
+ * user autonomy via [onEndEarly]. The confirmation is rendered INLINE (not a Compose Dialog) to
+ * avoid spawning a second window from a non-Activity context.
  */
 
-// --- Overlay-local palette (independent of the app/activity theme) ---
 private val OverlayBackground = Color(0xFF0B0F14)
 private val OverlaySurface = Color(0xFF161B22)
 private val OverlayPrimary = Color(0xFF6EE7B7)
@@ -80,26 +77,44 @@ private val OverlayColorScheme = darkColorScheme(
     surfaceVariant = OverlayTrack
 )
 
+private data class ChallengeCopy(val title: String, val subtitle: String)
+
+private fun copyFor(type: ChallengeType, app: String): ChallengeCopy = when (type) {
+    ChallengeType.FLIP -> ChallengeCopy(
+        "Take a mindful break",
+        "$app is paused. Rest your phone face-down and let the timer run."
+    )
+    ChallengeType.WAIT -> ChallengeCopy(
+        "Take a breath",
+        "$app is paused. Just wait for the timer to finish."
+    )
+    ChallengeType.SHAKE -> ChallengeCopy(
+        "Shake it off",
+        "$app is paused. Shake your phone to unlock it."
+    )
+    ChallengeType.MATH -> ChallengeCopy(
+        "Quick brain warm-up",
+        "$app is paused. Solve a few problems to unlock."
+    )
+}
+
 @Composable
 fun FocusOverlayScreen(
     state: ChallengeState,
     triggeringAppLabel: String,
-    onEndEarly: () -> Unit
+    onEndEarly: () -> Unit,
+    onMathAnswer: (Int) -> Unit = {}
 ) {
-    // Consume the system back gesture/button: the overlay must not be dismissed by
-    // back. The ONLY sanctioned exit is the confirmed "End session early" control.
+    // Consume the system back gesture/button so the overlay is not dismissed by Back. The ONLY
+    // sanctioned exit is the confirmed "End session early" control.
     BackHandler(enabled = true) { /* intentionally consume, no dismissal */ }
 
     var showEndDialog by remember { mutableStateOf(false) }
+    val copy = copyFor(state.type, triggeringAppLabel)
 
     MaterialTheme(colorScheme = OverlayColorScheme) {
-        // A single Box hosts both the main content and the inline confirmation so the
-        // confirmation overlays the challenge UI without opening a second window.
         Box(modifier = Modifier.fillMaxSize()) {
-            Surface(
-                modifier = Modifier.fillMaxSize(),
-                color = OverlayBackground
-            ) {
+            Surface(modifier = Modifier.fillMaxSize(), color = OverlayBackground) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -113,47 +128,61 @@ fun FocusOverlayScreen(
                         verticalArrangement = Arrangement.Center
                     ) {
                         Text(
-                            text = "Take a mindful break",
+                            text = copy.title,
                             color = OverlayOnBackground,
                             fontSize = 26.sp,
                             fontWeight = FontWeight.Bold,
                             textAlign = TextAlign.Center
                         )
-
                         Spacer(modifier = Modifier.height(8.dp))
-
                         Text(
-                            text = "$triggeringAppLabel is paused for now. Rest your phone and let the timer do its thing.",
+                            text = copy.subtitle,
                             color = OverlayOnSurfaceVariant,
                             fontSize = 15.sp,
                             textAlign = TextAlign.Center,
                             modifier = Modifier.widthIn(max = 340.dp)
                         )
+                        Spacer(modifier = Modifier.height(36.dp))
 
-                        Spacer(modifier = Modifier.height(40.dp))
-
-                        CountdownRing(
-                            progress = state.progress,
-                            remainingMillis = state.remainingMillis,
-                            isComplete = state.isComplete
-                        )
-
-                        Spacer(modifier = Modifier.height(40.dp))
-
-                        PositionStatusChip(isPositionValid = state.isPositionValid)
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        Text(
-                            text = "Moving or lifting your phone resets the timer.",
-                            color = OverlayOnSurfaceVariant,
-                            fontSize = 13.sp,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.widthIn(max = 320.dp)
-                        )
+                        when (state.type) {
+                            ChallengeType.FLIP -> {
+                                ProgressRing(
+                                    progress = state.progress,
+                                    isComplete = state.isComplete,
+                                    bigText = formatMillis(state.remainingMillis),
+                                    smallText = if (state.isComplete) "All done" else "remaining"
+                                )
+                                Spacer(modifier = Modifier.height(36.dp))
+                                PositionStatusChip(isPositionValid = state.isPositionValid)
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Hint("Moving or lifting your phone resets the timer.")
+                            }
+                            ChallengeType.WAIT -> {
+                                ProgressRing(
+                                    progress = state.progress,
+                                    isComplete = state.isComplete,
+                                    bigText = formatMillis(state.remainingMillis),
+                                    smallText = if (state.isComplete) "All done" else "remaining"
+                                )
+                                Spacer(modifier = Modifier.height(24.dp))
+                                Hint("Relax - the timer keeps running on its own.")
+                            }
+                            ChallengeType.SHAKE -> {
+                                ProgressRing(
+                                    progress = state.progress,
+                                    isComplete = state.isComplete,
+                                    bigText = "${state.shakeCount}",
+                                    smallText = "of ${state.shakeTarget} shakes"
+                                )
+                                Spacer(modifier = Modifier.height(24.dp))
+                                Hint("Give your phone a firm shake to count each one.")
+                            }
+                            ChallengeType.MATH -> {
+                                MathChallenge(state = state, onAnswer = onMathAnswer)
+                            }
+                        }
                     }
 
-                    // Low-emphasis autonomy control, anchored at the bottom.
                     TextButton(
                         onClick = { showEndDialog = true },
                         modifier = Modifier.align(Alignment.BottomCenter)
@@ -181,12 +210,77 @@ fun FocusOverlayScreen(
     }
 }
 
-/**
- * Inline confirmation rendered within the same overlay window (NOT a Compose
- * Dialog). A dimmed, click-consuming scrim covers the challenge UI and a centered
- * card offers "Keep going" / "End session". Because this lives inside the overlay's
- * ComposeView, no extra WindowManager window/token is required.
- */
+@Composable
+private fun MathChallenge(
+    state: ChallengeState,
+    onAnswer: (Int) -> Unit
+) {
+    Text(
+        text = state.mathQuestion ?: "",
+        color = OverlayOnBackground,
+        fontSize = 48.sp,
+        fontWeight = FontWeight.Bold,
+        textAlign = TextAlign.Center
+    )
+    Spacer(modifier = Modifier.height(28.dp))
+
+    val options = state.mathOptions
+    // Render options as a responsive 2-column grid of large tap targets.
+    Column(
+        modifier = Modifier.widthIn(max = 360.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        options.chunked(2).forEach { rowOptions ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                rowOptions.forEach { option ->
+                    Button(
+                        onClick = { onAnswer(option) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(64.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = OverlaySurface,
+                            contentColor = OverlayOnBackground
+                        )
+                    ) {
+                        Text(text = "$option", fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+        }
+    }
+
+    Spacer(modifier = Modifier.height(28.dp))
+    LinearProgressIndicator(
+        progress = { state.progress },
+        modifier = Modifier
+            .widthIn(max = 320.dp)
+            .fillMaxWidth(),
+        color = OverlayPrimary,
+        trackColor = OverlayTrack
+    )
+    Spacer(modifier = Modifier.height(10.dp))
+    Text(
+        text = "Solved ${state.mathSolved} of ${state.mathTotal}",
+        color = OverlayOnSurfaceVariant,
+        fontSize = 14.sp
+    )
+}
+
+@Composable
+private fun Hint(text: String) {
+    Text(
+        text = text,
+        color = OverlayOnSurfaceVariant,
+        fontSize = 13.sp,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.widthIn(max = 320.dp)
+    )
+}
+
 @Composable
 private fun EndSessionConfirmation(
     triggeringAppLabel: String,
@@ -197,8 +291,6 @@ private fun EndSessionConfirmation(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xCC000000))
-            // Tapping the scrim dismisses the confirmation; also swallows taps so
-            // they never reach the challenge UI behind it.
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -210,7 +302,6 @@ private fun EndSessionConfirmation(
             modifier = Modifier
                 .padding(28.dp)
                 .widthIn(max = 360.dp)
-                // Consume taps on the card itself so it does not dismiss.
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -239,17 +330,11 @@ private fun EndSessionConfirmation(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     TextButton(onClick = onDismiss) {
-                        Text(
-                            text = "Keep going",
-                            color = OverlayPrimary
-                        )
+                        Text(text = "Keep going", color = OverlayPrimary)
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     TextButton(onClick = onConfirm) {
-                        Text(
-                            text = "End session",
-                            color = PositionInvalidColor
-                        )
+                        Text(text = "End session", color = PositionInvalidColor)
                     }
                 }
             }
@@ -258,42 +343,36 @@ private fun EndSessionConfirmation(
 }
 
 @Composable
-private fun CountdownRing(
+private fun ProgressRing(
     progress: Float,
-    remainingMillis: Long,
-    isComplete: Boolean
+    isComplete: Boolean,
+    bigText: String,
+    smallText: String
 ) {
     Box(
         modifier = Modifier.size(220.dp),
         contentAlignment = Alignment.Center
     ) {
-        // Static track behind the progress ring.
         CircularProgressIndicator(
             progress = { 1f },
             modifier = Modifier.fillMaxSize(),
             color = OverlayTrack,
             strokeWidth = 10.dp
         )
-        // Active progress ring.
         CircularProgressIndicator(
             progress = { progress.coerceIn(0f, 1f) },
             modifier = Modifier.fillMaxSize(),
             color = if (isComplete) PositionValidColor else OverlayPrimary,
             strokeWidth = 10.dp
         )
-
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                text = formatMillis(remainingMillis),
+                text = bigText,
                 color = OverlayOnBackground,
                 fontSize = 52.sp,
                 fontWeight = FontWeight.Bold
             )
-            Text(
-                text = if (isComplete) "All done" else "remaining",
-                color = OverlayOnSurfaceVariant,
-                fontSize = 14.sp
-            )
+            Text(text = smallText, color = OverlayOnSurfaceVariant, fontSize = 14.sp)
         }
     }
 }
@@ -302,7 +381,7 @@ private fun CountdownRing(
 private fun PositionStatusChip(isPositionValid: Boolean) {
     val accent = if (isPositionValid) PositionValidColor else PositionInvalidColor
     val label = if (isPositionValid) {
-        "Phone is face-down â€” hold still"
+        "Phone is face-down - hold still"
     } else {
         "Place your phone face-down and keep still"
     }
@@ -331,9 +410,7 @@ private fun PositionStatusChip(isPositionValid: Boolean) {
     }
 }
 
-/**
- * Formats a millisecond duration as mm:ss (non-negative, clamped at zero).
- */
+/** Formats a millisecond duration as mm:ss (non-negative, clamped at zero). */
 private fun formatMillis(ms: Long): String {
     val safeMs = ms.coerceAtLeast(0L)
     val totalSeconds = safeMs / 1000L

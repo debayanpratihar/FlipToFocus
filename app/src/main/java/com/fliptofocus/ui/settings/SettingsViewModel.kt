@@ -3,6 +3,7 @@ package com.fliptofocus.ui.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.fliptofocus.domain.model.AppConfig
+import com.fliptofocus.domain.model.ChallengeType
 import com.fliptofocus.domain.repository.AppConfigRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
@@ -13,9 +14,12 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class SettingsUiState(
+    val challengeType: ChallengeType = ChallengeType.FLIP,
     val challengeDurationMinutes: Int = 5,
     val requireFaceDown: Boolean = true,
-    val motionTolerance: Float = 1.0f
+    val motionTolerance: Float = 1.0f,
+    val shakeCount: Int = 30,
+    val mathProblemCount: Int = 3
 )
 
 @HiltViewModel
@@ -26,9 +30,12 @@ class SettingsViewModel @Inject constructor(
     val uiState: StateFlow<SettingsUiState> = appConfigRepository.observeConfig()
         .map { config ->
             SettingsUiState(
+                challengeType = config.challengeType,
                 challengeDurationMinutes = config.challengeDurationMinutes,
                 requireFaceDown = config.requireFaceDown,
-                motionTolerance = config.motionTolerance
+                motionTolerance = config.motionTolerance,
+                shakeCount = config.shakeCount,
+                mathProblemCount = config.mathProblemCount
             )
         }
         .stateIn(
@@ -37,16 +44,26 @@ class SettingsViewModel @Inject constructor(
             initialValue = SettingsUiState()
         )
 
-    fun setChallengeDuration(minutes: Int) = update { config ->
-        config.copy(challengeDurationMinutes = minutes.coerceIn(MIN_MINUTES, MAX_MINUTES))
+    fun setChallengeType(type: ChallengeType) = update { it.copy(challengeType = type) }
+
+    fun setChallengeDuration(minutes: Int) = update {
+        it.copy(challengeDurationMinutes = minutes.coerceIn(MIN_MINUTES, MAX_MINUTES))
     }
 
-    fun setRequireFaceDown(requireFaceDown: Boolean) = update { config ->
-        config.copy(requireFaceDown = requireFaceDown)
+    fun setRequireFaceDown(requireFaceDown: Boolean) = update {
+        it.copy(requireFaceDown = requireFaceDown)
     }
 
-    fun setMotionTolerance(tolerance: Float) = update { config ->
-        config.copy(motionTolerance = tolerance.coerceIn(MIN_TOLERANCE, MAX_TOLERANCE))
+    fun setMotionTolerance(tolerance: Float) = update {
+        it.copy(motionTolerance = tolerance.coerceIn(MIN_TOLERANCE, MAX_TOLERANCE))
+    }
+
+    fun setShakeCount(count: Int) = update {
+        it.copy(shakeCount = count.coerceIn(MIN_SHAKES, MAX_SHAKES))
+    }
+
+    fun setMathProblemCount(count: Int) = update {
+        it.copy(mathProblemCount = count.coerceIn(MIN_MATH, MAX_MATH))
     }
 
     private fun update(transform: (AppConfig) -> AppConfig) {
@@ -61,6 +78,10 @@ class SettingsViewModel @Inject constructor(
         const val MAX_MINUTES = 60
         const val MIN_TOLERANCE = 0f
         const val MAX_TOLERANCE = 3f
+        const val MIN_SHAKES = 5
+        const val MAX_SHAKES = 100
+        const val MIN_MATH = 1
+        const val MAX_MATH = 10
         private const val STOP_TIMEOUT_MS = 5_000L
     }
 }

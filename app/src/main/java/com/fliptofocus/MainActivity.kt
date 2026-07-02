@@ -9,11 +9,16 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
+import com.fliptofocus.domain.repository.AppConfigRepository
 import com.fliptofocus.service.AppBlockerService
 import com.fliptofocus.ui.navigation.AppNavigation
 import com.fliptofocus.ui.theme.FlipToFocusTheme
 import com.fliptofocus.util.Constants
+import com.fliptofocus.util.PermissionUtils
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.launch
+import javax.inject.Inject
 
 /**
  * Single-activity host for the whole Compose UI.
@@ -28,6 +33,9 @@ import dagger.hilt.android.AndroidEntryPoint
  */
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+
+    @Inject
+    lateinit var appConfigRepository: AppConfigRepository
 
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) {
@@ -45,6 +53,29 @@ class MainActivity : ComponentActivity() {
                     startService = ::startBlockingService,
                     stopService = ::stopBlockingService
                 )
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        reArmBlockingIfEnabled()
+    }
+
+    /**
+     * Resumes protection whenever the user opens the app: if blocking is enabled and both
+     * permissions are present, (re)start the service. Android can refuse to restart a foreground
+     * service from the background, so this foreground-triggered restart is the reliable way to
+     * bring blocking back after the system stopped the service. It never starts while blocking is
+     * off, so the persistent notification is never shown misleadingly.
+     */
+    private fun reArmBlockingIfEnabled() {
+        lifecycleScope.launch {
+            val config = runCatching { appConfigRepository.getConfig() }.getOrNull() ?: return@launch
+            val permitted = PermissionUtils.hasUsageAccess(this@MainActivity) &&
+                PermissionUtils.canDrawOverlays(this@MainActivity)
+            if (config.isBlockingEnabled && permitted) {
+                startBlockingService()
             }
         }
     }

@@ -13,7 +13,7 @@ import javax.inject.Inject
  *
  * Uses [android.content.pm.PackageManager.queryIntentActivities] with the
  * MAIN/LAUNCHER intent (matching the manifest <queries> element) so the app can
- * see only user-launchable apps â€” this is the Google Play compliant alternative
+ * see only user-launchable apps - this is the Google Play compliant alternative
  * to the QUERY_ALL_PACKAGES permission, which this app deliberately does not use.
  *
  * The query and label loading run on [Dispatchers.IO] because resolving and

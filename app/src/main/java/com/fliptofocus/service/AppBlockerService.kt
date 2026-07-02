@@ -71,9 +71,25 @@ class AppBlockerService : LifecycleService() {
     private val ownPackage: String
         get() = packageName
 
+    @Volatile private var foregroundStarted = false
+
     override fun onCreate() {
         super.onCreate()
         ensureNotificationChannel()
+        foregroundStarted = enterForeground()
+        if (!foregroundStarted) {
+            // Android 12+ can refuse a foreground-service start that originates from the background
+            // (a START_STICKY restart after a low-memory kill throws
+            // ForegroundServiceStartNotAllowedException). Bail out cleanly instead of crashing the
+            // process; blocking is re-armed the next time the user opens the app.
+            stopSelf()
+            return
+        }
+        startCaches()
+    }
+
+    /** Enters the foreground, returning false if the platform refused (never throws). */
+    private fun enterForeground(): Boolean = try {
         val notification = buildNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(
@@ -84,11 +100,19 @@ class AppBlockerService : LifecycleService() {
         } else {
             startForeground(Constants.FOREGROUND_NOTIFICATION_ID, notification)
         }
-        startCaches()
+        true
+    } catch (t: Throwable) {
+        false
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
+        if (!foregroundStarted) {
+            // We never entered the foreground (see onCreate); do not run the monitor and let the
+            // service stop rather than restart into a crash-again loop.
+            stopSelf()
+            return START_NOT_STICKY
+        }
         when (intent?.action) {
             Constants.ACTION_START -> startMonitoring()
             Constants.ACTION_STOP -> stopBlocking()
@@ -216,14 +240,18 @@ class AppBlockerService : LifecycleService() {
             }
             activeSessionId = sessionId
             sensorChallengeManager.start(
+                type = config.challengeType,
                 durationMillis = durationMillis,
                 requireFaceDown = config.requireFaceDown,
-                motionTolerance = config.motionTolerance
+                motionTolerance = config.motionTolerance,
+                shakeTarget = config.shakeCount,
+                mathTotal = config.mathProblemCount
             )
             overlayManager.showOverlay(
                 triggeringLabel = labelFor(pkg),
                 stateFlow = sensorChallengeManager.state,
-                onEndEarly = { endEarly() }
+                onEndEarly = { endEarly() },
+                onMathAnswer = { sensorChallengeManager.submitMathAnswer(it) }
             )
             observeChallengeCompletion(pkg)
         }

@@ -60,12 +60,12 @@ private val GrantedGreen = Color(0xFF2E7D32)
  * Four-step prominent-disclosure onboarding.
  *
  * Steps:
- *   1. Welcome â€” explains the offline, sensor-based concept.
- *   2. Usage Access disclosure â€” verbatim [R.string.usage_access_disclosure]
+ *   1. Welcome - explains the offline, sensor-based concept.
+ *   2. Usage Access disclosure - verbatim [R.string.usage_access_disclosure]
  *      shown BEFORE deep-linking to the OS Usage Access settings.
- *   3. Overlay disclosure â€” verbatim [R.string.overlay_disclosure] shown BEFORE
+ *   3. Overlay disclosure - verbatim [R.string.overlay_disclosure] shown BEFORE
  *      deep-linking to the "Display over other apps" settings.
- *   4. All set â€” starts the service and enters the app.
+ *   4. All set - starts the service and enters the app.
  *
  * Permission state is re-read from the OS on every ON_RESUME (the user leaves to
  * a Settings screen and returns), and "Next"/"Start" stays disabled until the
@@ -243,7 +243,7 @@ private fun WelcomeContent() {
         Spacer(Modifier.height(16.dp))
         Text(
             text = "Everything runs entirely on your device. No account, no " +
-                "internet, no tracking â€” ever.",
+                "internet, no tracking - ever.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
@@ -340,7 +340,7 @@ private fun AllSetContent() {
         )
         Spacer(Modifier.height(12.dp))
         Text(
-            text = "Choose which apps to block from the blocklist, then relax â€” " +
+            text = "Choose which apps to block from the blocklist, then relax - " +
                 "we'll gently step in whenever one of them is opened.",
             style = MaterialTheme.typography.bodyLarge,
             textAlign = TextAlign.Center

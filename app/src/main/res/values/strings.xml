@@ -38,7 +38,7 @@
     <!-- ================= Blocklist ================= -->
     <string name="blocklist_title">Blocklist</string>
     <string name="search_apps">Search apps</string>
-    <string name="loading">Loadingâ€¦</string>
+    <string name="loading">Loading...</string>
     <string name="no_apps_found">No apps found</string>
 
     <!-- ================= Settings ================= -->
@@ -48,13 +48,13 @@
     <string name="require_face_down">Require face-down</string>
     <string name="require_face_down_desc">When on, the phone must be flat and face-down. When off, flat face-up also counts.</string>
     <string name="motion_sensitivity">Motion sensitivity</string>
-    <string name="motion_sensitivity_desc">Lower is stricter â€” smaller movements will reset the timer.</string>
+    <string name="motion_sensitivity_desc">Lower is stricter - smaller movements will reset the timer.</string>
     <string name="privacy_statement">All data stays on your device. FlipToFocus has no internet access, no analytics, and no tracking.</string>
 
     <!-- ================= Focus overlay ================= -->
     <string name="overlay_headline">Take a mindful break</string>
     <string name="overlay_subtext_format">%1$s is paused. Complete your break to continue.</string>
-    <string name="position_valid">Phone is face-down â€” hold still</string>
+    <string name="position_valid">Phone is face-down - hold still</string>
     <string name="position_invalid">Place your phone face-down and keep still</string>
     <string name="moving_resets_timer">Moving resets the timer</string>
     <string name="end_session_early">End session early</string>

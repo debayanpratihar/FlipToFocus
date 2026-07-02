@@ -2,6 +2,7 @@ package com.fliptofocus.data.local
 
 import com.fliptofocus.domain.model.AppConfig
 import com.fliptofocus.domain.model.BlockedApp
+import com.fliptofocus.domain.model.ChallengeType
 import com.fliptofocus.domain.model.FocusSession
 import com.fliptofocus.domain.model.SessionStatus
 
@@ -55,17 +56,23 @@ fun FocusSession.toEntity(): FocusSessionEntity =
 
 fun AppConfigEntity.toDomain(): AppConfig =
     AppConfig(
+        challengeType = ChallengeType.fromName(challengeType),
         challengeDurationMinutes = challengeDurationMinutes,
         requireFaceDown = requireFaceDown,
         motionTolerance = motionTolerance,
+        shakeCount = shakeCount,
+        mathProblemCount = mathProblemCount,
         isBlockingEnabled = isBlockingEnabled
     )
 
 fun AppConfig.toEntity(): AppConfigEntity =
     AppConfigEntity(
         id = 1,
+        challengeType = challengeType.name,
         challengeDurationMinutes = challengeDurationMinutes,
         requireFaceDown = requireFaceDown,
         motionTolerance = motionTolerance,
+        shakeCount = shakeCount,
+        mathProblemCount = mathProblemCount,
         isBlockingEnabled = isBlockingEnabled
     )

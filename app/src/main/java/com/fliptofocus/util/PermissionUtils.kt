@@ -12,9 +12,9 @@ import android.provider.Settings
  * Stateless helpers for querying and navigating to the two special-access
  * permissions this app depends on:
  *
- *  - Usage Access (PACKAGE_USAGE_STATS) â€” checked via [AppOpsManager] because it
+ *  - Usage Access (PACKAGE_USAGE_STATS) - checked via [AppOpsManager] because it
  *    is an app-op, not a runtime permission.
- *  - Draw Over Other Apps (SYSTEM_ALERT_WINDOW) â€” checked via
+ *  - Draw Over Other Apps (SYSTEM_ALERT_WINDOW) - checked via
  *    [Settings.canDrawOverlays].
  *
  * Neither of these can be requested with the standard runtime-permission dialog;

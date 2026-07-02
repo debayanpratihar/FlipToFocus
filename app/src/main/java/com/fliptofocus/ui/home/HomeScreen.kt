@@ -85,7 +85,7 @@ fun HomeScreen(
             item {
                 NavRow(
                     title = "Settings",
-                    subtitle = "Challenge duration, motion sensitivity",
+                    subtitle = "Unlock method, duration, sensitivity",
                     icon = Icons.Filled.Settings,
                     onClick = { navController.navigate("settings") }
                 )
@@ -248,7 +248,7 @@ private fun SessionStatusBadge(status: SessionStatus) {
 }
 
 private fun formatSessionTime(timestamp: Long): String {
-    val formatter = SimpleDateFormat("MMM d Â· HH:mm", Locale.getDefault())
+    val formatter = SimpleDateFormat("MMM d - HH:mm", Locale.getDefault())
     return formatter.format(Date(timestamp))
 }
 

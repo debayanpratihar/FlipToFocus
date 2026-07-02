@@ -1,5 +1,6 @@
 package com.fliptofocus.ui.settings
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,19 +12,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -36,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
+import com.fliptofocus.domain.model.ChallengeType
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -52,10 +55,7 @@ fun SettingsScreen(
                 title = { Text("Settings") },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(
-                            imageVector = Icons.Filled.ArrowBack,
-                            contentDescription = "Back"
-                        )
+                        Icon(imageVector = Icons.Filled.ArrowBack, contentDescription = "Back")
                     }
                 }
             )
@@ -69,20 +69,27 @@ fun SettingsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            ChallengeDurationCard(
-                minutes = uiState.challengeDurationMinutes,
-                onDurationChange = viewModel::setChallengeDuration
+            ChallengeMethodCard(
+                selected = uiState.challengeType,
+                onSelect = viewModel::setChallengeType
             )
 
-            RequireFaceDownCard(
-                requireFaceDown = uiState.requireFaceDown,
-                onToggle = viewModel::setRequireFaceDown
-            )
-
-            MotionToleranceCard(
-                motionTolerance = uiState.motionTolerance,
-                onToleranceChange = viewModel::setMotionTolerance
-            )
+            when (uiState.challengeType) {
+                ChallengeType.FLIP -> {
+                    ChallengeDurationCard(uiState.challengeDurationMinutes, viewModel::setChallengeDuration)
+                    RequireFaceDownCard(uiState.requireFaceDown, viewModel::setRequireFaceDown)
+                    MotionToleranceCard(uiState.motionTolerance, viewModel::setMotionTolerance)
+                }
+                ChallengeType.WAIT -> {
+                    ChallengeDurationCard(uiState.challengeDurationMinutes, viewModel::setChallengeDuration)
+                }
+                ChallengeType.SHAKE -> {
+                    ShakeCountCard(uiState.shakeCount, viewModel::setShakeCount)
+                }
+                ChallengeType.MATH -> {
+                    MathCountCard(uiState.mathProblemCount, viewModel::setMathProblemCount)
+                }
+            }
 
             PrivacyStatementCard()
         }
@@ -90,14 +97,50 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun ChallengeDurationCard(
-    minutes: Int,
-    onDurationChange: (Int) -> Unit
+private fun ChallengeMethodCard(
+    selected: ChallengeType,
+    onSelect: (ChallengeType) -> Unit
 ) {
-    var sliderValue by remember(minutes) { mutableFloatStateOf(minutes.toFloat()) }
-    SettingCard(title = "Challenge duration") {
+    SettingCard(title = "Unlock method") {
         Text(
-            text = "Hold still with your phone face-down for ${sliderValue.roundToInt()} minute(s) before a blocked app unlocks.",
+            text = "Choose what you need to do to unlock a blocked app.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(8.dp))
+        ChallengeType.entries.forEach { type ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onSelect(type) }
+                    .padding(vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RadioButton(selected = type == selected, onClick = { onSelect(type) })
+                Spacer(Modifier.size(8.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = type.displayName,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = type.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChallengeDurationCard(minutes: Int, onDurationChange: (Int) -> Unit) {
+    var sliderValue by remember(minutes) { mutableFloatStateOf(minutes.toFloat()) }
+    SettingCard(title = "Timer duration") {
+        Text(
+            text = "The timer runs for ${sliderValue.roundToInt()} minute(s) before a blocked app unlocks.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -118,10 +161,7 @@ private fun ChallengeDurationCard(
 }
 
 @Composable
-private fun RequireFaceDownCard(
-    requireFaceDown: Boolean,
-    onToggle: (Boolean) -> Unit
-) {
+private fun RequireFaceDownCard(requireFaceDown: Boolean, onToggle: (Boolean) -> Unit) {
     SettingCard(title = "Require face-down") {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -140,14 +180,11 @@ private fun RequireFaceDownCard(
 }
 
 @Composable
-private fun MotionToleranceCard(
-    motionTolerance: Float,
-    onToleranceChange: (Float) -> Unit
-) {
+private fun MotionToleranceCard(motionTolerance: Float, onToleranceChange: (Float) -> Unit) {
     var sliderValue by remember(motionTolerance) { mutableFloatStateOf(motionTolerance) }
     SettingCard(title = "Motion sensitivity") {
         Text(
-            text = "Controls how much movement resets the timer. Lower is stricter â€” even small movements restart the challenge.",
+            text = "Controls how much movement resets the timer. Lower is stricter - even small movements restart the challenge.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -183,6 +220,56 @@ private fun MotionToleranceCard(
 }
 
 @Composable
+private fun ShakeCountCard(count: Int, onChange: (Int) -> Unit) {
+    var sliderValue by remember(count) { mutableFloatStateOf(count.toFloat()) }
+    SettingCard(title = "Number of shakes") {
+        Text(
+            text = "Shake your phone ${sliderValue.roundToInt()} time(s) to unlock a blocked app.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(8.dp))
+        Slider(
+            value = sliderValue,
+            onValueChange = { sliderValue = it },
+            onValueChangeFinished = { onChange(sliderValue.roundToInt()) },
+            valueRange = SettingsViewModel.MIN_SHAKES.toFloat()..SettingsViewModel.MAX_SHAKES.toFloat(),
+            steps = ((SettingsViewModel.MAX_SHAKES - SettingsViewModel.MIN_SHAKES) / 5) - 1
+        )
+        Text(
+            text = "${sliderValue.roundToInt()} shakes",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
+@Composable
+private fun MathCountCard(count: Int, onChange: (Int) -> Unit) {
+    var sliderValue by remember(count) { mutableFloatStateOf(count.toFloat()) }
+    SettingCard(title = "Number of problems") {
+        Text(
+            text = "Solve ${sliderValue.roundToInt()} quick problem(s) to unlock a blocked app.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(8.dp))
+        Slider(
+            value = sliderValue,
+            onValueChange = { sliderValue = it },
+            onValueChangeFinished = { onChange(sliderValue.roundToInt()) },
+            valueRange = SettingsViewModel.MIN_MATH.toFloat()..SettingsViewModel.MAX_MATH.toFloat(),
+            steps = SettingsViewModel.MAX_MATH - SettingsViewModel.MIN_MATH - 1
+        )
+        Text(
+            text = "${sliderValue.roundToInt()} problems",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
+@Composable
 private fun PrivacyStatementCard() {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -207,10 +294,7 @@ private fun PrivacyStatementCard() {
 }
 
 @Composable
-private fun SettingCard(
-    title: String,
-    content: @Composable () -> Unit
-) {
+private fun SettingCard(title: String, content: @Composable () -> Unit) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
