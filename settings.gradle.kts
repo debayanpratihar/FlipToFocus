@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Un-Distract Me"
+rootProject.name = "FlipToFocus"
 include(":app")

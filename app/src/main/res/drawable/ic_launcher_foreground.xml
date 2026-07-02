@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    "Un-Distract Me" mark: a focus ring with a centered dot, sitting inside the
+    "FlipToFocus" mark: a focus ring with a centered dot, sitting inside the
     ~66dp adaptive-icon safe zone (centered at 54,54). White on the indigo background.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"

@@ -6,11 +6,11 @@ plugins {
 }
 
 android {
-    namespace = "com.undistractme"
+    namespace = "com.fliptofocus"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.undistractme"
+        applicationId = "com.fliptofocus"
         minSdk = 26
         targetSdk = 34
         versionCode = 1

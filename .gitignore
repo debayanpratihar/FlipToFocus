@@ -1,0 +1,38 @@
+# ---- Gradle ----
+.gradle/
+build/
+# Keep the committed Gradle wrapper jar (needed to build after clone)
+!gradle/wrapper/gradle-wrapper.jar
+
+# ---- Android build outputs ----
+/app/build/
+/build/
+release/
+*.apk
+*.aab
+*.ap_
+*.dex
+captures/
+.externalNativeBuild/
+.cxx/
+
+# ---- Android Studio / IntelliJ ----
+.idea/
+*.iml
+*.ipr
+*.iws
+.navigation/
+
+# ---- Machine-specific config (NEVER commit) ----
+local.properties
+
+# ---- Signing / secrets (NEVER commit) ----
+*.jks
+*.keystore
+keystore.properties
+signing.properties
+
+# ---- OS / misc ----
+.DS_Store
+Thumbs.db
+*.log

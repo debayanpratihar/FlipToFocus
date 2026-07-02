@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Un-Distract Me</string>
+    <string name="app_name">FlipToFocus</string>
 
     <!-- ================= EXACT PROMINENT-DISCLOSURE STRINGS (verbatim, do not edit) ================= -->
-    <string name="usage_access_disclosure">Un-Distract Me requires Usage Access permission to detect when distracting social apps are launched in the foreground. This data is processed strictly on your device and is never transmitted or collected.</string>
-    <string name="overlay_disclosure">Un-Distract Me requires the Draw Over Other Apps permission to place a visual focus screen on top of distracting applications, helping you stay committed to your break. Your screen content is private and never recorded.</string>
+    <string name="usage_access_disclosure">FlipToFocus requires Usage Access permission to detect when distracting social apps are launched in the foreground. This data is processed strictly on your device and is never transmitted or collected.</string>
+    <string name="overlay_disclosure">FlipToFocus requires the Draw Over Other Apps permission to place a visual focus screen on top of distracting applications, helping you stay committed to your break. Your screen content is private and never recorded.</string>
 
     <!-- ================= Onboarding ================= -->
     <string name="onboarding_welcome_title">Reclaim your focus</string>
-    <string name="onboarding_welcome_body">Un-Distract Me gently interrupts distracting apps and asks you to complete a short offline break challenge before you continue. Place your phone face-down, stay still for the timer, and get back to what matters. Everything runs on your device.</string>
+    <string name="onboarding_welcome_body">FlipToFocus gently interrupts distracting apps and asks you to complete a short offline break challenge before you continue. Place your phone face-down, stay still for the timer, and get back to what matters. Everything runs on your device.</string>
     <string name="onboarding_usage_title">Usage Access</string>
     <string name="onboarding_overlay_title">Draw Over Other Apps</string>
     <string name="onboarding_all_set_title">You\'re all set</string>
@@ -21,7 +21,7 @@
     <string name="action_start">Start</string>
 
     <!-- ================= Home ================= -->
-    <string name="home_title">Un-Distract Me</string>
+    <string name="home_title">FlipToFocus</string>
     <string name="blocking_enabled">Blocking enabled</string>
     <string name="blocking_disabled">Blocking paused</string>
     <string name="enabled_apps_count">%1$d apps blocked</string>
@@ -49,7 +49,7 @@
     <string name="require_face_down_desc">When on, the phone must be flat and face-down. When off, flat face-up also counts.</string>
     <string name="motion_sensitivity">Motion sensitivity</string>
     <string name="motion_sensitivity_desc">Lower is stricter â€” smaller movements will reset the timer.</string>
-    <string name="privacy_statement">All data stays on your device. Un-Distract Me has no internet access, no analytics, and no tracking.</string>
+    <string name="privacy_statement">All data stays on your device. FlipToFocus has no internet access, no analytics, and no tracking.</string>
 
     <!-- ================= Focus overlay ================= -->
     <string name="overlay_headline">Take a mindful break</string>

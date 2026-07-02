@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------------
-# Un-Distract Me â€” R8 / ProGuard rules
+# FlipToFocus â€” R8 / ProGuard rules
 # 100% offline app: no reflection-based networking/serialization SDKs.
 # ---------------------------------------------------------------------------
 
@@ -36,8 +36,8 @@
 # ---------------------------------------------------------------------------
 # App entities / DAOs / domain models referenced by generated Room + Hilt code.
 # ---------------------------------------------------------------------------
--keep class com.undistractme.data.local.** { *; }
--keep class com.undistractme.domain.model.** { *; }
+-keep class com.fliptofocus.data.local.** { *; }
+-keep class com.fliptofocus.domain.model.** { *; }
 
 # ---------------------------------------------------------------------------
 # Kotlin coroutines
