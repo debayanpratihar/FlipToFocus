@@ -1,6 +1,7 @@
 package com.fliptofocus.overlay
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -59,24 +60,37 @@ import java.util.Locale
  * avoid spawning a second window from a non-Activity context.
  */
 
-private val OverlayBackground = Color(0xFF0B0F14)
-private val OverlaySurface = Color(0xFF161B22)
-private val OverlayPrimary = Color(0xFF6EE7B7)
-private val OverlayOnBackground = Color(0xFFE6EAF0)
-private val OverlayOnSurfaceVariant = Color(0xFF9AA4B2)
-private val OverlayTrack = Color(0xFF2A313B)
-private val PositionValidColor = Color(0xFF34D399)
-private val PositionInvalidColor = Color(0xFFFBBF24)
+private val OverlayBackground = Color(0xFF000000)
+private val OverlaySurface = Color(0xFF1C1C1E)
+private val OverlayPrimary = Color(0xFF0A84FF)
+private val OverlayOnBackground = Color(0xFFFFFFFF)
+private val OverlayOnSurfaceVariant = Color(0xFF98989F)
+private val OverlayTrack = Color(0xFF2C2C2E)
+private val PositionValidColor = Color(0xFF30D158)
+private val PositionInvalidColor = Color(0xFFFF9F0A)
 
 private val OverlayColorScheme = darkColorScheme(
     primary = OverlayPrimary,
-    onPrimary = Color(0xFF07130D),
+    onPrimary = Color(0xFFFFFFFF),
     background = OverlayBackground,
     onBackground = OverlayOnBackground,
     surface = OverlaySurface,
     onSurface = OverlayOnBackground,
     onSurfaceVariant = OverlayOnSurfaceVariant,
     surfaceVariant = OverlayTrack
+)
+
+private val QUOTES = listOf(
+    "Where focus goes, energy flows.",
+    "Discipline is choosing what you want most over what you want now.",
+    "Almost everything works again if you unplug it for a while - including you.",
+    "Focus on being productive, not busy.",
+    "Your future is created by what you do now, not later.",
+    "Small steps every day add up to big change.",
+    "The successful warrior is the average person with laser focus.",
+    "Breathe. This moment is yours.",
+    "What you stay focused on will grow.",
+    "Almost every worthwhile thing takes a little patience."
 )
 
 private data class ChallengeCopy(val title: String, val subtitle: String)
@@ -99,12 +113,13 @@ fun FocusOverlayScreen(
     onMathAnswer: (Int) -> Unit = {},
     onLeaveToHome: () -> Unit = {}
 ) {
-    // Consume the system back gesture/button so the overlay is not dismissed by Back. The ONLY
-    // sanctioned exit is the confirmed "End session early" control.
-    BackHandler(enabled = true) { /* intentionally consume, no dismissal */ }
+    // Back leaves the locked app (goes Home) WITHOUT unlocking it, so the user is never trapped.
+    // The app stays blocked and challenges again when reopened.
+    BackHandler(enabled = true) { onLeaveToHome() }
 
     var showEndDialog by remember { mutableStateOf(false) }
     val copy = copyFor(state.type, triggeringAppLabel)
+    val quote = remember { QUOTES.random() }
 
     MaterialTheme(colorScheme = OverlayColorScheme) {
         Box(modifier = Modifier.fillMaxSize()) {
@@ -114,9 +129,9 @@ fun FocusOverlayScreen(
                     .background(
                         Brush.verticalGradient(
                             colors = listOf(
-                                Color(0xFF0B0F14),
-                                Color(0xFF161B2E),
-                                Color(0xFF0B0F14)
+                                Color(0xFF000000),
+                                Color(0xFF1C1C1E),
+                                Color(0xFF000000)
                             )
                         )
                     )
@@ -148,7 +163,16 @@ fun FocusOverlayScreen(
                             textAlign = TextAlign.Center,
                             modifier = Modifier.widthIn(max = 340.dp)
                         )
-                        Spacer(modifier = Modifier.height(36.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "“$quote”",
+                            color = OverlayPrimary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.widthIn(max = 320.dp)
+                        )
+                        Spacer(modifier = Modifier.height(30.dp))
 
                         when (state.type) {
                             ChallengeType.FLIP -> {
@@ -375,8 +399,12 @@ private fun ProgressRing(
             color = OverlayTrack,
             strokeWidth = 10.dp
         )
+        val animatedProgress by animateFloatAsState(
+            targetValue = progress.coerceIn(0f, 1f),
+            label = "ringProgress"
+        )
         CircularProgressIndicator(
-            progress = { progress.coerceIn(0f, 1f) },
+            progress = { animatedProgress },
             modifier = Modifier.fillMaxSize(),
             color = if (isComplete) PositionValidColor else OverlayPrimary,
             strokeWidth = 10.dp

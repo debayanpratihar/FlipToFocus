@@ -1,5 +1,10 @@
 package com.fliptofocus.ui.navigation
 
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
@@ -38,7 +43,14 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
         if (ready) Routes.HOME else Routes.ONBOARDING
     }
 
-    NavHost(navController = navController, startDestination = startDestination) {
+    NavHost(
+        navController = navController,
+        startDestination = startDestination,
+        enterTransition = { fadeIn(tween(250)) + slideInHorizontally { it / 10 } },
+        exitTransition = { fadeOut(tween(200)) },
+        popEnterTransition = { fadeIn(tween(250)) },
+        popExitTransition = { fadeOut(tween(200)) + slideOutHorizontally { it / 10 } }
+    ) {
         composable(Routes.ONBOARDING) {
             OnboardingScreen(
                 onFinished = {

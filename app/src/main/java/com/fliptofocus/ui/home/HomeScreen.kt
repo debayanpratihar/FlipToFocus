@@ -1,5 +1,8 @@
 package com.fliptofocus.ui.home
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -17,23 +20,22 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberSwipeToDismissBoxState
@@ -47,29 +49,30 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation.NavController
 import com.fliptofocus.domain.model.FocusSession
 import com.fliptofocus.domain.model.SessionStatus
+import com.fliptofocus.ui.theme.IosBlue
+import com.fliptofocus.ui.theme.IosGreen
+import com.fliptofocus.ui.theme.IosGroup
+import com.fliptofocus.ui.theme.IosOrange
+import com.fliptofocus.ui.theme.IosRed
+import com.fliptofocus.ui.theme.IosSecondaryLabel
+import com.fliptofocus.ui.theme.IosSeparator
 import com.fliptofocus.util.PermissionUtils
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-
-private val HeaderStart = Color(0xFF5B4BE1)
-private val HeaderEnd = Color(0xFF8B5CF6)
-private val ReadyGreen = Color(0xFF2E7D32)
-private val WarnAmber = Color(0xFFEF6C00)
-private val DeleteRed = Color(0xFFE53935)
 
 @Composable
 fun HomeScreen(
@@ -94,21 +97,19 @@ fun HomeScreen(
     }
     val ready = accessibilityOn && overlayOn
 
+    // Subtle one-shot entrance animation for the stats.
+    var appeared by remember { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(Unit) { appeared = true }
+
     Scaffold { innerPadding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(top = innerPadding.calculateTopPadding()),
-            contentPadding = PaddingValues(bottom = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            contentPadding = PaddingValues(top = 12.dp, bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            item {
-                DashboardHeader(
-                    streakDays = uiState.streakDays,
-                    ready = ready,
-                    blockingEnabled = uiState.isBlockingEnabled
-                )
-            }
+            item { HeaderBlock(ready = ready, blockingEnabled = uiState.isBlockingEnabled) }
 
             if (!ready) {
                 item {
@@ -126,56 +127,76 @@ fun HomeScreen(
             }
 
             item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                AnimatedVisibility(
+                    visible = appeared,
+                    enter = fadeIn() + slideInVertically { it / 5 }
                 ) {
-                    StatTile(
-                        modifier = Modifier.weight(1f),
-                        emoji = "🔥",
-                        value = "${uiState.streakDays}",
-                        label = if (uiState.streakDays == 1) "day streak" else "day streak"
-                    )
-                    StatTile(
-                        modifier = Modifier.weight(1f),
-                        emoji = "✅",
-                        value = "${uiState.completedCount}",
-                        label = "completed"
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        StatTile(Modifier.weight(1f), "🔥", "${uiState.streakDays}", "streak")
+                        StatTile(Modifier.weight(1f), "✅", "${uiState.todayCompleted}", "today")
+                        StatTile(Modifier.weight(1f), "🏆", "${uiState.longestStreak}", "best")
+                    }
                 }
             }
 
             item {
                 Padded {
-                    BlockingToggleCard(
-                        isEnabled = uiState.isBlockingEnabled,
-                        enabledAppCount = uiState.enabledAppCount,
-                        onToggle = { enabled -> viewModel.setBlockingEnabled(enabled) }
-                    )
+                    GroupCard {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Blocking",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = if (uiState.isBlockingEnabled) {
+                                        "${uiState.enabledAppCount} app(s) protected by Focus Mode"
+                                    } else {
+                                        "Paused - distracting apps open normally"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = IosSecondaryLabel
+                                )
+                            }
+                            Switch(
+                                checked = uiState.isBlockingEnabled,
+                                onCheckedChange = { viewModel.setBlockingEnabled(it) }
+                            )
+                        }
+                    }
                 }
             }
 
             item {
                 Padded {
-                    NavRow(
-                        title = "Choose apps to block",
-                        subtitle = "${uiState.enabledAppCount} app(s) currently blocked",
-                        icon = Icons.Filled.List,
-                        onClick = { navController.navigate("blocklist") }
-                    )
-                }
-            }
-
-            item {
-                Padded {
-                    NavRow(
-                        title = "Settings",
-                        subtitle = "Unlock method, difficulty, timer",
-                        icon = Icons.Filled.Settings,
-                        onClick = { navController.navigate("settings") }
-                    )
+                    GroupCard {
+                        GroupRow(
+                            icon = Icons.Filled.Apps,
+                            iconBg = IosBlue,
+                            title = "Choose apps to block",
+                            subtitle = "${uiState.enabledAppCount} selected",
+                            onClick = { navController.navigate("blocklist") }
+                        )
+                        InsetDivider()
+                        GroupRow(
+                            icon = Icons.Filled.Settings,
+                            iconBg = IosSecondaryLabel,
+                            title = "Settings",
+                            subtitle = "Unlock method, difficulty, timer",
+                            onClick = { navController.navigate("settings") }
+                        )
+                    }
                 }
             }
 
@@ -183,17 +204,20 @@ fun HomeScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                        .padding(start = 16.dp, end = 8.dp, top = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Recent focus breaks",
-                        style = MaterialTheme.typography.titleMedium,
+                        text = "RECENT BREAKS",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = IosSecondaryLabel,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.weight(1f)
                     )
                     if (uiState.recentSessions.isNotEmpty()) {
-                        TextButton(onClick = { viewModel.clearHistory() }) { Text("Clear all") }
+                        TextButton(onClick = { viewModel.clearHistory() }) {
+                            Text("Clear all", color = IosBlue)
+                        }
                     }
                 }
             }
@@ -202,9 +226,9 @@ fun HomeScreen(
                 item {
                     Padded {
                         Text(
-                            text = "No focus breaks yet. Open a blocked app and your mindful breaks will appear here. Swipe a row to delete it.",
+                            text = "No focus breaks yet. Open a blocked app to begin. Swipe a row left to delete it.",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = IosSecondaryLabel
                         )
                     }
                 }
@@ -228,70 +252,98 @@ private fun Padded(content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun DashboardHeader(streakDays: Int, ready: Boolean, blockingEnabled: Boolean) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp))
-            .background(Brush.linearGradient(listOf(HeaderStart, HeaderEnd)))
-            .padding(horizontal = 20.dp, vertical = 28.dp)
+private fun GroupCard(content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = IosGroup)
     ) {
-        Column {
-            Text(
-                text = "FlipToFocus",
-                color = Color.White,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                text = when {
-                    !ready -> "Finish setup to activate Focus Mode"
-                    blockingEnabled -> "Focus Mode is on. Stay strong 💪"
-                    else -> "Blocking is paused"
-                },
-                color = Color.White.copy(alpha = 0.9f),
-                style = MaterialTheme.typography.bodyMedium
-            )
-            Spacer(Modifier.height(16.dp))
-            Surface(
-                color = Color.White.copy(alpha = 0.18f),
-                shape = RoundedCornerShape(50)
-            ) {
-                Text(
-                    text = "🔥  $streakDays day streak",
-                    color = Color.White,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-            }
-        }
+        Column(content = content)
+    }
+}
+
+@Composable
+private fun InsetDivider() {
+    HorizontalDivider(
+        modifier = Modifier.padding(start = 62.dp),
+        color = IosSeparator
+    )
+}
+
+@Composable
+private fun HeaderBlock(ready: Boolean, blockingEnabled: Boolean) {
+    Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
+        Text(
+            text = "FlipToFocus",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = when {
+                !ready -> "Finish setup to activate Focus Mode"
+                blockingEnabled -> "Focus Mode is on. Stay strong."
+                else -> "Blocking is paused"
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            color = IosSecondaryLabel
+        )
     }
 }
 
 @Composable
 private fun StatTile(modifier: Modifier, emoji: String, value: String, label: String) {
-    Card(modifier = modifier) {
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = IosGroup)
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(text = emoji, style = MaterialTheme.typography.titleLarge)
+            Text(text = emoji, fontSize = 22.sp)
             Spacer(Modifier.height(4.dp))
-            Text(
-                text = value,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = label,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Text(text = value, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text(text = label, style = MaterialTheme.typography.bodySmall, color = IosSecondaryLabel)
         }
+    }
+}
+
+@Composable
+private fun GroupRow(
+    icon: ImageVector,
+    iconBg: Color,
+    title: String,
+    subtitle: String?,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(30.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(iconBg),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+        }
+        Spacer(Modifier.size(14.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = title, style = MaterialTheme.typography.bodyLarge)
+            if (subtitle != null) {
+                Text(text = subtitle, style = MaterialTheme.typography.bodySmall, color = IosSecondaryLabel)
+            }
+        }
+        Icon(Icons.Filled.KeyboardArrowRight, contentDescription = null, tint = IosSecondaryLabel)
     }
 }
 
@@ -305,17 +357,18 @@ private fun SetupCard(
     Padded {
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = WarnAmber.copy(alpha = 0.12f))
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = IosGroup)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Warning, contentDescription = null, tint = WarnAmber, modifier = Modifier.size(26.dp))
+                    Icon(Icons.Filled.Warning, contentDescription = null, tint = IosOrange, modifier = Modifier.size(24.dp))
                     Spacer(Modifier.size(10.dp))
                     Text(
                         text = "Finish setup",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
-                        color = WarnAmber
+                        color = IosOrange
                     )
                 }
                 if (!accessibilityOn) {
@@ -331,79 +384,6 @@ private fun SetupCard(
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun BlockingToggleCard(
-    isEnabled: Boolean,
-    enabledAppCount: Int,
-    onToggle: (Boolean) -> Unit
-) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Blocking enabled",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = if (isEnabled) {
-                        "$enabledAppCount distracting app(s) are protected by Focus Mode."
-                    } else {
-                        "Blocking is off. Distracting apps open normally."
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Spacer(Modifier.size(12.dp))
-            Switch(checked = isEnabled, onCheckedChange = onToggle)
-        }
-    }
-}
-
-@Composable
-private fun NavRow(
-    title: String,
-    subtitle: String,
-    icon: ImageVector,
-    onClick: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(imageVector = icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.size(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(text = title, style = MaterialTheme.typography.titleMedium)
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Icon(
-                imageVector = Icons.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
         }
     }
 }
@@ -427,9 +407,9 @@ private fun SwipeableSessionRow(session: FocusSession, onDelete: () -> Unit) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(DeleteRed)
-                    .padding(horizontal = 20.dp),
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(IosRed)
+                    .padding(horizontal = 22.dp),
                 contentAlignment = Alignment.CenterEnd
             ) {
                 Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = Color.White)
@@ -444,7 +424,8 @@ private fun SwipeableSessionRow(session: FocusSession, onDelete: () -> Unit) {
 private fun SessionRow(session: FocusSession) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = IosGroup)
     ) {
         Row(
             modifier = Modifier
@@ -462,7 +443,7 @@ private fun SessionRow(session: FocusSession) {
                 Text(
                     text = formatSessionTime(session.startTimestamp),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = IosSecondaryLabel
                 )
             }
             SessionStatusBadge(session.status)
@@ -473,20 +454,21 @@ private fun SessionRow(session: FocusSession) {
 @Composable
 private fun SessionStatusBadge(status: SessionStatus) {
     val (label, color) = when (status) {
-        SessionStatus.COMPLETED -> "Completed" to ReadyGreen
-        SessionStatus.ABANDONED -> "Ended early" to WarnAmber
-        SessionStatus.IN_PROGRESS -> "In progress" to MaterialTheme.colorScheme.primary
+        SessionStatus.COMPLETED -> "Completed" to IosGreen
+        SessionStatus.ABANDONED -> "Ended early" to IosOrange
+        SessionStatus.IN_PROGRESS -> "In progress" to IosBlue
     }
-    Surface(
-        color = color.copy(alpha = 0.15f),
-        contentColor = color,
-        shape = RoundedCornerShape(50)
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(color.copy(alpha = 0.18f))
+            .padding(horizontal = 12.dp, vertical = 6.dp)
     ) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.Medium,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+            color = color
         )
     }
 }

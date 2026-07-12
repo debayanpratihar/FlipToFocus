@@ -15,17 +15,17 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import javax.inject.Inject
 
-/**
- * UI state for the Home dashboard. Derived entirely from on-device repositories.
- */
 data class HomeUiState(
     val isBlockingEnabled: Boolean = true,
     val enabledAppCount: Int = 0,
     val streakDays: Int = 0,
+    val longestStreak: Int = 0,
     val completedCount: Int = 0,
+    val todayCompleted: Int = 0,
     val recentSessions: List<FocusSession> = emptyList()
 )
 
@@ -41,11 +41,22 @@ class HomeViewModel @Inject constructor(
         blockedAppRepository.observeEnabledPackages(),
         focusSessionRepository.observeSessions()
     ) { config, enabledPackages, sessions ->
+        val zone = ZoneId.systemDefault()
+        val completed = sessions.filter { it.status == SessionStatus.COMPLETED }
+        val completedDays = completed
+            .map { Instant.ofEpochMilli(it.startTimestamp).atZone(zone).toLocalDate() }
+            .toSortedSet()
+        val today = Instant.ofEpochMilli(System.currentTimeMillis()).atZone(zone).toLocalDate()
+
         HomeUiState(
             isBlockingEnabled = config.isBlockingEnabled,
             enabledAppCount = enabledPackages.size,
-            streakDays = computeStreakDays(sessions),
-            completedCount = sessions.count { it.status == SessionStatus.COMPLETED },
+            streakDays = currentStreak(completedDays, today),
+            longestStreak = longestStreak(completedDays),
+            completedCount = completed.size,
+            todayCompleted = completed.count {
+                Instant.ofEpochMilli(it.startTimestamp).atZone(zone).toLocalDate() == today
+            },
             recentSessions = sessions.take(RECENT_SESSION_LIMIT)
         )
     }
@@ -73,30 +84,33 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch { runCatching { focusSessionRepository.clearHistory() } }
     }
 
-    /**
-     * The focus streak: how many consecutive days (ending today, or yesterday if today has none
-     * yet) the user completed at least one challenge. A grace day means missing today alone does
-     * not immediately zero the streak.
-     */
-    private fun computeStreakDays(sessions: List<FocusSession>): Int {
-        val zone = ZoneId.systemDefault()
-        val completedDays = sessions.asSequence()
-            .filter { it.status == SessionStatus.COMPLETED }
-            .map { Instant.ofEpochMilli(it.startTimestamp).atZone(zone).toLocalDate() }
-            .toSet()
-        if (completedDays.isEmpty()) return 0
-
-        var day = Instant.ofEpochMilli(System.currentTimeMillis()).atZone(zone).toLocalDate()
-        if (!completedDays.contains(day)) {
+    /** Consecutive days (ending today, or yesterday as a grace) with at least one completed break. */
+    private fun currentStreak(days: Set<LocalDate>, today: LocalDate): Int {
+        if (days.isEmpty()) return 0
+        var day = today
+        if (!days.contains(day)) {
             day = day.minusDays(1)
-            if (!completedDays.contains(day)) return 0
+            if (!days.contains(day)) return 0
         }
         var streak = 0
-        while (completedDays.contains(day)) {
+        while (days.contains(day)) {
             streak++
             day = day.minusDays(1)
         }
         return streak
+    }
+
+    /** The longest run of consecutive completed-break days ever recorded. */
+    private fun longestStreak(days: Set<LocalDate>): Int {
+        if (days.isEmpty()) return 0
+        val sorted = days.sorted()
+        var best = 1
+        var run = 1
+        for (i in 1 until sorted.size) {
+            run = if (sorted[i] == sorted[i - 1].plusDays(1)) run + 1 else 1
+            if (run > best) best = run
+        }
+        return best
     }
 
     private companion object {

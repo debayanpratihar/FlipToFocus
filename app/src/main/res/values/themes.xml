@@ -3,14 +3,14 @@
 
     <!--
          Minimal platform manifest theme. The real theming is done in Compose
-         (FlipToFocusTheme). This exists only so the manifest can reference a
-         valid, action-bar-free theme without pulling in an XML UI dependency.
+         (FlipToFocusTheme, which is dark-only). This makes the app window black from
+         launch (no white flash) with a dark status bar.
     -->
-    <style name="Theme.FlipToFocus" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:windowBackground">@color/surface_light</item>
-        <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:navigationBarColor">@android:color/transparent</item>
-        <item name="android:windowLightStatusBar">true</item>
+    <style name="Theme.FlipToFocus" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:statusBarColor">@android:color/black</item>
+        <item name="android:navigationBarColor">@android:color/black</item>
+        <item name="android:windowLightStatusBar">false</item>
     </style>
 
 </resources>

@@ -61,6 +61,7 @@ class FocusAccessibilityService : AccessibilityService() {
 
     private var completionJob: Job? = null
     private var pollJob: Job? = null
+    private var pendingTeardownJob: Job? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -151,19 +152,37 @@ class FocusAccessibilityService : AccessibilityService() {
             pkg != challengeSatisfiedPkg
 
         if (blockedUnsatisfied) {
+            // Returning to the blocked app cancels any pending teardown so the overlay never
+            // flickers away and back (e.g. a quick Recents peek).
+            pendingTeardownJob?.cancel()
+            pendingTeardownJob = null
             // Already actively challenging this exact app with the overlay up? Leave the timer be.
             if (activeBlockedPkg == pkg && overlayManager.isShowing) return
             startChallengeFor(pkg)
         } else {
-            // Launcher / Recents / a satisfied app / blocking-off. Release any active challenge.
+            // Launcher / Recents / a satisfied app / blocking-off. Release any active challenge,
+            // but debounced so brief transitions don't tear the overlay down.
             if (activeBlockedPkg != null && activeBlockedPkg != pkg) {
-                teardown(abandon = true)
+                scheduleTeardown()
             }
             // Moving to any genuinely different app clears the satisfied marker, so re-opening a
             // blocked app always requires the challenge again.
             if (pkg != challengeSatisfiedPkg) {
                 challengeSatisfiedPkg = null
             }
+        }
+    }
+
+    /**
+     * Removes the overlay only if the user stays away from the blocked app for
+     * [TEARDOWN_GRACE_MS]. Eliminates flicker from transient transitions such as opening Recents
+     * and immediately returning.
+     */
+    private fun scheduleTeardown() {
+        if (pendingTeardownJob?.isActive == true) return
+        pendingTeardownJob = serviceScope.launch {
+            delay(TEARDOWN_GRACE_MS)
+            teardown(abandon = true)
         }
     }
 
@@ -263,6 +282,7 @@ class FocusAccessibilityService : AccessibilityService() {
     }
 
     private fun teardown(abandon: Boolean) {
+        pendingTeardownJob = null
         val id = activeSessionId
         activeSessionId = null
         activeBlockedPkg = null
@@ -295,5 +315,6 @@ class FocusAccessibilityService : AccessibilityService() {
 
     private companion object {
         const val POLL_MS = 600L
+        const val TEARDOWN_GRACE_MS = 700L
     }
 }
