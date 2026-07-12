@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Configuration for FlipToFocus's foreground-app detector.
+
+    It listens ONLY for window-state-change events to learn which app is in the
+    foreground, and explicitly does NOT retrieve window content
+    (canRetrieveWindowContent="false"), so no on-screen text or data is ever read.
+    isAccessibilityTool="false" honestly declares this is not an assistive tool.
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/accessibility_service_description"
+    android:summary="@string/accessibility_service_summary"
+    android:accessibilityEventTypes="typeWindowStateChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagDefault"
+    android:canRetrieveWindowContent="false"
+    android:isAccessibilityTool="false"
+    android:notificationTimeout="100" />

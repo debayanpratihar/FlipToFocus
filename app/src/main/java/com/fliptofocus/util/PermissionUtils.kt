@@ -1,55 +1,55 @@
 package com.fliptofocus.util
 
-import android.app.AppOpsManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
-import android.os.Process
 import android.provider.Settings
+import android.text.TextUtils
+import com.fliptofocus.service.FocusAccessibilityService
 
 /**
- * Stateless helpers for querying and navigating to the two special-access
- * permissions this app depends on:
+ * Stateless helpers for querying and navigating to the two special-access permissions this app
+ * depends on:
  *
- *  - Usage Access (PACKAGE_USAGE_STATS) - checked via [AppOpsManager] because it
- *    is an app-op, not a runtime permission.
- *  - Draw Over Other Apps (SYSTEM_ALERT_WINDOW) - checked via
- *    [Settings.canDrawOverlays].
+ *  - The Accessibility service (foreground-app detection) - checked against the system's list of
+ *    enabled accessibility services.
+ *  - Draw Over Other Apps (SYSTEM_ALERT_WINDOW) - checked via [Settings.canDrawOverlays].
  *
- * Neither of these can be requested with the standard runtime-permission dialog;
- * both are granted from a dedicated Settings screen, so this object also exposes
- * the intents that deep-link the user there.
+ * Both are granted from dedicated Settings screens, so this object also exposes the deep-link
+ * intents. Every OS call is wrapped defensively so a query can never crash the caller.
  */
 object PermissionUtils {
 
-    /** True when the user has granted Usage Access to this package. */
-    fun hasUsageAccess(context: Context): Boolean {
-        val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as? AppOpsManager
-            ?: return false
-        val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            appOps.unsafeCheckOpNoThrow(
-                AppOpsManager.OPSTR_GET_USAGE_STATS,
-                Process.myUid(),
-                context.packageName
+    /** True when FlipToFocus's [FocusAccessibilityService] is enabled by the user in system settings. */
+    fun isAccessibilityServiceEnabled(context: Context): Boolean {
+        val expected = ComponentName(context, FocusAccessibilityService::class.java)
+        val enabled = runCatching {
+            Settings.Secure.getString(
+                context.contentResolver,
+                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
             )
-        } else {
-            @Suppress("DEPRECATION")
-            appOps.checkOpNoThrow(
-                AppOpsManager.OPSTR_GET_USAGE_STATS,
-                Process.myUid(),
-                context.packageName
-            )
+        }.getOrNull()
+        if (enabled.isNullOrEmpty()) return false
+
+        val splitter = TextUtils.SimpleStringSplitter(':')
+        splitter.setString(enabled)
+        while (splitter.hasNext()) {
+            val component = ComponentName.unflattenFromString(splitter.next())
+            if (component != null && component == expected) return true
         }
-        return mode == AppOpsManager.MODE_ALLOWED
+        // Fallback for OEM formatting differences.
+        return enabled.contains(expected.flattenToString(), ignoreCase = true) ||
+            enabled.contains(expected.flattenToShortString(), ignoreCase = true)
     }
 
     /** True when the user has granted "Display over other apps" to this package. */
-    fun canDrawOverlays(context: Context): Boolean = Settings.canDrawOverlays(context)
+    fun canDrawOverlays(context: Context): Boolean =
+        runCatching { Settings.canDrawOverlays(context) }.getOrDefault(false)
 
-    /** Deep-links to the system Usage Access settings list. */
-    fun usageAccessSettingsIntent(): Intent =
-        Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
+    /** Deep-links to the system Accessibility settings list. */
+    fun accessibilitySettingsIntent(): Intent =
+        Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
 
     /** Deep-links directly to this app's "Display over other apps" toggle. */
     fun overlaySettingsIntent(context: Context): Intent =

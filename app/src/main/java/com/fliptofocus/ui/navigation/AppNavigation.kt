@@ -24,27 +24,16 @@ object Routes {
 /**
  * Top-level navigation graph.
  *
- * The start destination is decided from the current permission state: if either
- * Usage Access or the overlay permission is missing, the user is routed through
- * onboarding first; otherwise they land on home. The [startService] /
- * [stopService] callbacks are threaded down to the screens that toggle blocking
- * so the UI never references the service class directly.
- *
- * Call sites here match the screen declarations exactly: every screen takes the
- * shared [NavController] (and performs its own popBackStack / navigate), and
- * HomeScreen additionally receives [onBlockingEnabledChanged], which we bridge to
- * the service start/stop callbacks so toggling the master switch actually
- * starts or stops [com.fliptofocus.service.AppBlockerService].
+ * Start destination is decided from the current permission state: if the accessibility service is
+ * not enabled or the overlay permission is missing, the user goes through onboarding first;
+ * otherwise they land on home. Blocking itself is driven purely by persisted config that the
+ * accessibility service observes, so no screen needs to start/stop a service.
  */
 @Composable
-fun AppNavigation(
-    startService: () -> Unit,
-    stopService: () -> Unit,
-    navController: NavHostController = rememberNavController()
-) {
+fun AppNavigation(navController: NavHostController = rememberNavController()) {
     val context = LocalContext.current
     val startDestination = remember {
-        val ready = PermissionUtils.hasUsageAccess(context) &&
+        val ready = PermissionUtils.isAccessibilityServiceEnabled(context) &&
             PermissionUtils.canDrawOverlays(context)
         if (ready) Routes.HOME else Routes.ONBOARDING
     }
@@ -53,7 +42,6 @@ fun AppNavigation(
         composable(Routes.ONBOARDING) {
             OnboardingScreen(
                 onFinished = {
-                    startService()
                     navController.navigate(Routes.HOME) {
                         popUpTo(Routes.ONBOARDING) { inclusive = true }
                         launchSingleTop = true
@@ -62,12 +50,7 @@ fun AppNavigation(
             )
         }
         composable(Routes.HOME) {
-            HomeScreen(
-                navController = navController,
-                onBlockingEnabledChanged = { enabled ->
-                    if (enabled) startService() else stopService()
-                }
-            )
+            HomeScreen(navController = navController)
         }
         composable(Routes.BLOCKLIST) {
             BlocklistScreen(navController = navController)

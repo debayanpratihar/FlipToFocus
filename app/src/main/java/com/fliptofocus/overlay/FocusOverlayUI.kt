@@ -35,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -79,23 +80,14 @@ private val OverlayColorScheme = darkColorScheme(
 
 private data class ChallengeCopy(val title: String, val subtitle: String)
 
-private fun copyFor(type: ChallengeType, app: String): ChallengeCopy = when (type) {
-    ChallengeType.FLIP -> ChallengeCopy(
-        "Take a mindful break",
-        "$app is paused. Rest your phone face-down and let the timer run."
-    )
-    ChallengeType.WAIT -> ChallengeCopy(
-        "Take a breath",
-        "$app is paused. Just wait for the timer to finish."
-    )
-    ChallengeType.SHAKE -> ChallengeCopy(
-        "Shake it off",
-        "$app is paused. Shake your phone to unlock it."
-    )
-    ChallengeType.MATH -> ChallengeCopy(
-        "Quick brain warm-up",
-        "$app is paused. Solve a few problems to unlock."
-    )
+private fun copyFor(type: ChallengeType, app: String): ChallengeCopy {
+    val subtitle = when (type) {
+        ChallengeType.FLIP -> "$app is locked. Place your phone face-down and hold still to unlock."
+        ChallengeType.WAIT -> "$app is locked. Wait for the timer to finish to unlock."
+        ChallengeType.SHAKE -> "$app is locked. Shake your phone to unlock."
+        ChallengeType.MATH -> "$app is locked. Solve the problems to unlock."
+    }
+    return ChallengeCopy(title = "Focus Mode active", subtitle = subtitle)
 }
 
 @Composable
@@ -114,7 +106,19 @@ fun FocusOverlayScreen(
 
     MaterialTheme(colorScheme = OverlayColorScheme) {
         Box(modifier = Modifier.fillMaxSize()) {
-            Surface(modifier = Modifier.fillMaxSize(), color = OverlayBackground) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color(0xFF0B0F14),
+                                Color(0xFF161B2E),
+                                Color(0xFF0B0F14)
+                            )
+                        )
+                    )
+            ) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()

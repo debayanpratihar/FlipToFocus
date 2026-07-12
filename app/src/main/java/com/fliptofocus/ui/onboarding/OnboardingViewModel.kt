@@ -16,7 +16,7 @@ import javax.inject.Inject
  */
 enum class OnboardingStep {
     WELCOME,
-    USAGE_ACCESS,
+    ACCESSIBILITY,
     OVERLAY,
     ALL_SET
 }

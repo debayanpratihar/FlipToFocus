@@ -3,30 +3,17 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <!--
-         Detect when a user-selected distracting app is in the foreground.
-         Processed strictly on-device; never transmitted. No QUERY_ALL_PACKAGES,
-         no INTERNET, no analytics/networking permissions of any kind.
+         FlipToFocus is 100% offline: NO internet, NO analytics/networking, NO QUERY_ALL_PACKAGES.
+         Foreground-app detection uses an AccessibilityService (no UsageStats, no foreground
+         service), which is reliable across devices and avoids Android 14 FGS start restrictions.
     -->
-    <uses-permission
-        android:name="android.permission.PACKAGE_USAGE_STATS"
-        tools:ignore="ProtectedPermissions" />
 
     <!-- Draw the offline focus overlay over user-selected distracting apps only. -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
-    <!-- Persistent foreground service that runs the on-device monitoring loop. -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
-
-    <!-- Persistent notification for the foreground service (API 33+). -->
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-
-    <!-- Re-arm blocking after reboot only when the user has blocking enabled. -->
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-
     <!--
-         Resolve the launchable installed apps for the blocklist screen.
-         Uses queryIntentActivities(ACTION_MAIN / CATEGORY_LAUNCHER) - NOT QUERY_ALL_PACKAGES.
+         Resolve the launchable installed apps for the blocklist screen using
+         queryIntentActivities(ACTION_MAIN / CATEGORY_LAUNCHER) - NOT QUERY_ALL_PACKAGES.
     -->
     <queries>
         <intent>
@@ -56,23 +43,23 @@
             </intent-filter>
         </activity>
 
+        <!--
+             Foreground-app detector. Protected by BIND_ACCESSIBILITY_SERVICE (held only by the
+             system) so no other app can bind to it. exported=true is required for the system to
+             bind an accessibility service.
+        -->
         <service
-            android:name=".service.AppBlockerService"
-            android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="app_focus_blocking_overlay" />
-        </service>
-
-        <receiver
-            android:name=".service.BootReceiver"
-            android:enabled="true"
-            android:exported="true">
+            android:name=".service.FocusAccessibilityService"
+            android:exported="true"
+            android:label="@string/accessibility_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.accessibilityservice.AccessibilityService" />
             </intent-filter>
-        </receiver>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
 
     </application>
 

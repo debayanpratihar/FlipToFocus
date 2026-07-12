@@ -5,6 +5,12 @@
     <!-- ================= EXACT PROMINENT-DISCLOSURE STRINGS (verbatim, do not edit) ================= -->
     <string name="usage_access_disclosure">FlipToFocus requires Usage Access permission to detect when distracting social apps are launched in the foreground. This data is processed strictly on your device and is never transmitted or collected.</string>
     <string name="overlay_disclosure">FlipToFocus requires the Draw Over Other Apps permission to place a visual focus screen on top of distracting applications, helping you stay committed to your break. Your screen content is private and never recorded.</string>
+    <string name="accessibility_disclosure">FlipToFocus uses the Accessibility service only to detect which app is currently in the foreground, so it can show your focus screen when you open an app you chose to block. It never reads, collects, or transmits any screen content. All processing stays on your device.</string>
+
+    <!-- ================= Accessibility service (system-facing) ================= -->
+    <string name="accessibility_service_label">FlipToFocus</string>
+    <string name="accessibility_service_description">Detects when an app you chose to block is opened, so FlipToFocus can show your focus challenge. It does not read or collect screen content – everything stays on your device.</string>
+    <string name="accessibility_service_summary">Lets FlipToFocus detect blocked apps on-device to enforce your focus breaks.</string>
 
     <!-- ================= Onboarding ================= -->
     <string name="onboarding_welcome_title">Reclaim your focus</string>

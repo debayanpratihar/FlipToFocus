@@ -3,6 +3,7 @@ package com.fliptofocus.ui.home
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,9 +15,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -28,29 +32,58 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.fliptofocus.domain.model.FocusSession
 import com.fliptofocus.domain.model.SessionStatus
+import com.fliptofocus.util.PermissionUtils
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+private val ReadyGreen = Color(0xFF2E7D32)
+private val WarnAmber = Color(0xFFEF6C00)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     navController: NavController,
-    onBlockingEnabledChanged: (Boolean) -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+
+    // Re-read the two special permissions whenever the screen resumes (the user may toggle them in
+    // system settings and return), so the status card is always accurate.
+    var accessibilityOn by remember { mutableStateOf(PermissionUtils.isAccessibilityServiceEnabled(context)) }
+    var overlayOn by remember { mutableStateOf(PermissionUtils.canDrawOverlays(context)) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                accessibilityOn = PermissionUtils.isAccessibilityServiceEnabled(context)
+                overlayOn = PermissionUtils.canDrawOverlays(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("FlipToFocus") }) }
@@ -59,24 +92,35 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+            contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
-                BlockingToggleCard(
-                    isEnabled = uiState.isBlockingEnabled,
-                    enabledAppCount = uiState.enabledAppCount,
-                    onToggle = { enabled ->
-                        viewModel.setBlockingEnabled(enabled)
-                        onBlockingEnabledChanged(enabled)
+                FocusModeStatusCard(
+                    ready = accessibilityOn && overlayOn,
+                    accessibilityOn = accessibilityOn,
+                    overlayOn = overlayOn,
+                    onFixAccessibility = {
+                        runCatching { context.startActivity(PermissionUtils.accessibilitySettingsIntent()) }
+                    },
+                    onFixOverlay = {
+                        runCatching { context.startActivity(PermissionUtils.overlaySettingsIntent(context)) }
                     }
                 )
             }
 
             item {
+                BlockingToggleCard(
+                    isEnabled = uiState.isBlockingEnabled,
+                    enabledAppCount = uiState.enabledAppCount,
+                    onToggle = { enabled -> viewModel.setBlockingEnabled(enabled) }
+                )
+            }
+
+            item {
                 NavRow(
-                    title = "Blocklist",
-                    subtitle = "${uiState.enabledAppCount} app(s) actively blocked",
+                    title = "Choose apps to block",
+                    subtitle = "${uiState.enabledAppCount} app(s) currently blocked",
                     icon = Icons.Filled.List,
                     onClick = { navController.navigate("blocklist") }
                 )
@@ -85,7 +129,7 @@ fun HomeScreen(
             item {
                 NavRow(
                     title = "Settings",
-                    subtitle = "Unlock method, duration, sensitivity",
+                    subtitle = "Unlock method, timer, sensitivity",
                     icon = Icons.Filled.Settings,
                     onClick = { navController.navigate("settings") }
                 )
@@ -103,7 +147,7 @@ fun HomeScreen(
             if (uiState.recentSessions.isEmpty()) {
                 item {
                     Text(
-                        text = "No focus breaks yet. When you open a blocked app, your mindful breaks will be listed here.",
+                        text = "No focus breaks yet. When you open a blocked app, your mindful breaks will appear here.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -111,6 +155,62 @@ fun HomeScreen(
             } else {
                 items(uiState.recentSessions, key = { it.id }) { session ->
                     SessionRow(session)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FocusModeStatusCard(
+    ready: Boolean,
+    accessibilityOn: Boolean,
+    overlayOn: Boolean,
+    onFixAccessibility: () -> Unit,
+    onFixOverlay: () -> Unit
+) {
+    val accent = if (ready) ReadyGreen else WarnAmber
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = accent.copy(alpha = 0.12f))
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = if (ready) Icons.Filled.CheckCircle else Icons.Filled.Warning,
+                    contentDescription = null,
+                    tint = accent,
+                    modifier = Modifier.size(28.dp)
+                )
+                Spacer(Modifier.size(12.dp))
+                Column {
+                    Text(
+                        text = if (ready) "Focus Mode is ready" else "Finish setup",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = accent
+                    )
+                    Text(
+                        text = if (ready) {
+                            "FlipToFocus is watching for blocked apps."
+                        } else {
+                            "FlipToFocus needs a couple of permissions to protect you."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            if (!accessibilityOn) {
+                Spacer(Modifier.height(12.dp))
+                Button(onClick = onFixAccessibility, modifier = Modifier.fillMaxWidth()) {
+                    Text("Enable Accessibility (foreground detection)")
+                }
+            }
+            if (!overlayOn) {
+                Spacer(Modifier.height(8.dp))
+                Button(onClick = onFixOverlay, modifier = Modifier.fillMaxWidth()) {
+                    Text("Allow Display over other apps")
                 }
             }
         }
@@ -139,7 +239,7 @@ private fun BlockingToggleCard(
                 Spacer(Modifier.height(4.dp))
                 Text(
                     text = if (isEnabled) {
-                        "$enabledAppCount distracting app(s) are protected by a focus challenge."
+                        "$enabledAppCount distracting app(s) are protected by Focus Mode."
                     } else {
                         "Blocking is off. Distracting apps open normally."
                     },
@@ -157,7 +257,7 @@ private fun BlockingToggleCard(
 private fun NavRow(
     title: String,
     subtitle: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     onClick: () -> Unit
 ) {
     Card(
@@ -171,11 +271,7 @@ private fun NavRow(
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary
-            )
+            Icon(imageVector = icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.size(16.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(text = title, style = MaterialTheme.typography.titleMedium)
@@ -198,9 +294,7 @@ private fun NavRow(
 private fun SessionRow(session: FocusSession) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Row(
             modifier = Modifier
@@ -229,8 +323,8 @@ private fun SessionRow(session: FocusSession) {
 @Composable
 private fun SessionStatusBadge(status: SessionStatus) {
     val (label, color) = when (status) {
-        SessionStatus.COMPLETED -> "Completed" to Color(0xFF2E7D32)
-        SessionStatus.ABANDONED -> "Ended early" to Color(0xFFEF6C00)
+        SessionStatus.COMPLETED -> "Completed" to ReadyGreen
+        SessionStatus.ABANDONED -> "Ended early" to WarnAmber
         SessionStatus.IN_PROGRESS -> "In progress" to MaterialTheme.colorScheme.primary
     }
     Surface(
@@ -248,7 +342,7 @@ private fun SessionStatusBadge(status: SessionStatus) {
 }
 
 private fun formatSessionTime(timestamp: Long): String {
-    val formatter = SimpleDateFormat("MMM d - HH:mm", Locale.getDefault())
+    val formatter = SimpleDateFormat("MMM d, HH:mm", Locale.getDefault())
     return formatter.format(Date(timestamp))
 }
 

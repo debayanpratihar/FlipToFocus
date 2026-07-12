@@ -60,16 +60,16 @@ private val GrantedGreen = Color(0xFF2E7D32)
  * Four-step prominent-disclosure onboarding.
  *
  * Steps:
- *   1. Welcome - explains the offline, sensor-based concept.
- *   2. Usage Access disclosure - verbatim [R.string.usage_access_disclosure]
- *      shown BEFORE deep-linking to the OS Usage Access settings.
- *   3. Overlay disclosure - verbatim [R.string.overlay_disclosure] shown BEFORE
- *      deep-linking to the "Display over other apps" settings.
- *   4. All set - starts the service and enters the app.
+ *   1. Welcome - explains the offline, gesture-based concept.
+ *   2. Accessibility disclosure - verbatim [R.string.accessibility_disclosure] shown BEFORE
+ *      deep-linking to the OS Accessibility settings.
+ *   3. Overlay disclosure - verbatim [R.string.overlay_disclosure] shown BEFORE deep-linking to
+ *      the "Display over other apps" settings.
+ *   4. All set - enters the app.
  *
- * Permission state is re-read from the OS on every ON_RESUME (the user leaves to
- * a Settings screen and returns), and "Next"/"Start" stays disabled until the
- * permission required by the current step has actually been granted.
+ * Permission state is re-read from the OS on every ON_RESUME (the user leaves to a Settings screen
+ * and returns), and "Next"/"Start" stays disabled until the permission for the current step is
+ * actually granted.
  */
 @Composable
 fun OnboardingScreen(
@@ -80,14 +80,16 @@ fun OnboardingScreen(
     val stepIndex by viewModel.stepIndex.collectAsState()
     val step = OnboardingStep.values()[stepIndex.coerceIn(0, viewModel.lastStepIndex)]
 
-    var hasUsageAccess by remember { mutableStateOf(PermissionUtils.hasUsageAccess(context)) }
+    var hasAccessibility by remember {
+        mutableStateOf(PermissionUtils.isAccessibilityServiceEnabled(context))
+    }
     var canDrawOverlays by remember { mutableStateOf(PermissionUtils.canDrawOverlays(context)) }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                hasUsageAccess = PermissionUtils.hasUsageAccess(context)
+                hasAccessibility = PermissionUtils.isAccessibilityServiceEnabled(context)
                 canDrawOverlays = PermissionUtils.canDrawOverlays(context)
             }
         }
@@ -95,11 +97,9 @@ fun OnboardingScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // Launchers deep-link to the relevant Settings screen; the result callback and
-    // ON_RESUME both refresh the granted flags when the user returns.
-    val usageLauncher = rememberLauncherForActivityResult(
+    val accessibilityLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
-    ) { hasUsageAccess = PermissionUtils.hasUsageAccess(context) }
+    ) { hasAccessibility = PermissionUtils.isAccessibilityServiceEnabled(context) }
 
     val overlayLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -108,12 +108,11 @@ fun OnboardingScreen(
     val isLastStep = stepIndex == viewModel.lastStepIndex
     val canProceed = when (step) {
         OnboardingStep.WELCOME -> true
-        OnboardingStep.USAGE_ACCESS -> hasUsageAccess
+        OnboardingStep.ACCESSIBILITY -> hasAccessibility
         OnboardingStep.OVERLAY -> canDrawOverlays
-        OnboardingStep.ALL_SET -> hasUsageAccess && canDrawOverlays
+        OnboardingStep.ALL_SET -> hasAccessibility && canDrawOverlays
     }
 
-    // Back moves to the previous step rather than exiting, until the first step.
     BackHandler(enabled = stepIndex > 0) { viewModel.back() }
 
     Scaffold { innerPadding ->
@@ -123,10 +122,7 @@ fun OnboardingScreen(
                 .padding(innerPadding)
                 .padding(horizontal = 24.dp, vertical = 16.dp)
         ) {
-            StepIndicator(
-                current = stepIndex,
-                total = viewModel.lastStepIndex + 1
-            )
+            StepIndicator(current = stepIndex, total = viewModel.lastStepIndex + 1)
             Spacer(Modifier.height(24.dp))
 
             Column(
@@ -138,14 +134,17 @@ fun OnboardingScreen(
                 when (step) {
                     OnboardingStep.WELCOME -> WelcomeContent()
 
-                    OnboardingStep.USAGE_ACCESS -> DisclosureCard(
+                    OnboardingStep.ACCESSIBILITY -> DisclosureCard(
                         icon = Icons.Filled.Settings,
-                        heading = "Usage Access",
-                        body = stringResource(R.string.usage_access_disclosure),
-                        granted = hasUsageAccess,
-                        grantLabel = "Grant Permission",
+                        heading = "Accessibility Access",
+                        body = stringResource(R.string.accessibility_disclosure),
+                        granted = hasAccessibility,
+                        grantLabel = "Open Accessibility Settings",
+                        helper = "In the list, tap FlipToFocus and turn it on, then press Back.",
                         onGrant = {
-                            usageLauncher.launch(PermissionUtils.usageAccessSettingsIntent())
+                            runCatching {
+                                accessibilityLauncher.launch(PermissionUtils.accessibilitySettingsIntent())
+                            }
                         }
                     )
 
@@ -155,8 +154,11 @@ fun OnboardingScreen(
                         body = stringResource(R.string.overlay_disclosure),
                         granted = canDrawOverlays,
                         grantLabel = "Grant Permission",
+                        helper = null,
                         onGrant = {
-                            overlayLauncher.launch(PermissionUtils.overlaySettingsIntent(context))
+                            runCatching {
+                                overlayLauncher.launch(PermissionUtils.overlaySettingsIntent(context))
+                            }
                         }
                     )
 
@@ -234,16 +236,15 @@ private fun WelcomeContent() {
         )
         Spacer(Modifier.height(12.dp))
         Text(
-            text = "Reclaim your focus. When you open a distracting app, " +
-                "FlipToFocus asks you to place your phone face-down and stay " +
-                "still for a short break before it lets you continue.",
+            text = "Reclaim your focus. When you open an app you chose to block, FlipToFocus turns " +
+                "on Focus Mode and asks you to complete a quick offline gesture - by default, " +
+                "flipping your phone face-down and holding still - before it unlocks.",
             style = MaterialTheme.typography.bodyLarge,
             textAlign = TextAlign.Center
         )
         Spacer(Modifier.height(16.dp))
         Text(
-            text = "Everything runs entirely on your device. No account, no " +
-                "internet, no tracking - ever.",
+            text = "Everything runs entirely on your device. No account, no internet, no tracking - ever.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
@@ -265,6 +266,7 @@ private fun DisclosureCard(
     body: String,
     granted: Boolean,
     grantLabel: String,
+    helper: String?,
     onGrant: () -> Unit
 ) {
     Card(
@@ -294,6 +296,15 @@ private fun DisclosureCard(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            if (helper != null && !granted) {
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = helper,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.Medium
+                )
+            }
             Spacer(Modifier.height(20.dp))
             if (granted) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -311,10 +322,7 @@ private fun DisclosureCard(
                     )
                 }
             } else {
-                Button(
-                    onClick = onGrant,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+                Button(onClick = onGrant, modifier = Modifier.fillMaxWidth()) {
                     Text(grantLabel)
                 }
             }
@@ -340,15 +348,15 @@ private fun AllSetContent() {
         )
         Spacer(Modifier.height(12.dp))
         Text(
-            text = "Choose which apps to block from the blocklist, then relax - " +
-                "we'll gently step in whenever one of them is opened.",
+            text = "Choose which apps to block from the blocklist, then relax - Focus Mode steps in " +
+                "whenever one of them is opened.",
             style = MaterialTheme.typography.bodyLarge,
             textAlign = TextAlign.Center
         )
         Spacer(Modifier.height(16.dp))
         Text(
-            text = "You can end any focus break early at any time, and change your " +
-                "choices whenever you like.",
+            text = "You can change your blocked apps, the unlock method, and the timer at any time " +
+                "from Settings.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
