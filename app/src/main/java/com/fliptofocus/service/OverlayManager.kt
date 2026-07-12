@@ -78,7 +78,8 @@ class OverlayManager @Inject constructor(
         triggeringLabel: String,
         stateFlow: StateFlow<ChallengeState>,
         onEndEarly: () -> Unit,
-        onMathAnswer: (Int) -> Unit = {}
+        onMathAnswer: (Int) -> Unit = {},
+        onLeaveToHome: () -> Unit = {}
     ) {
         if (isShowing) return
         val owner = OverlayViewLifecycleOwner()
@@ -105,7 +106,8 @@ class OverlayManager @Inject constructor(
                         state = state,
                         triggeringAppLabel = triggeringLabel,
                         onEndEarly = onEndEarly,
-                        onMathAnswer = onMathAnswer
+                        onMathAnswer = onMathAnswer,
+                        onLeaveToHome = onLeaveToHome
                     )
                 }
             }

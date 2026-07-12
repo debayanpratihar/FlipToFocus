@@ -14,6 +14,7 @@ package com.fliptofocus.domain.model
  */
 data class AppConfig(
     val challengeType: ChallengeType = ChallengeType.FLIP,
+    val difficulty: Difficulty = Difficulty.MEDIUM,
     val challengeDurationMinutes: Int = 5,
     val requireFaceDown: Boolean = true,
     val motionTolerance: Float = 1.0f,

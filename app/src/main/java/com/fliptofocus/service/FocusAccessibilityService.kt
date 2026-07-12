@@ -14,9 +14,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -24,19 +26,17 @@ import javax.inject.Inject
  * Foreground-app detector and focus-challenge orchestrator, implemented as an
  * [AccessibilityService].
  *
- * Why accessibility (and not a polling foreground service): the system delivers a
- * [AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED] event whenever the foreground app changes, which
- * is both more reliable and dramatically cheaper than polling UsageStats, and it removes the
- * fragile Android 14 `specialUse` foreground-service start path that could crash on some devices.
+ * Detection is BOTH event-driven and self-healing:
+ *  - [onAccessibilityEvent] reacts immediately to window-state changes.
+ *  - A short polling loop re-reads the current foreground package (via [rootInActiveWindow])
+ *    every [POLL_MS] and re-evaluates. This closes two gaps that pure event handling misses:
+ *      1. A blocked app that was ALREADY open when blocking was enabled (no new event fires).
+ *      2. Returning to a blocked app from Recents, where some devices don't emit a fresh event.
+ *    The result: the focus overlay reliably (re)appears and cannot be bypassed via Recents.
  *
- * Privacy / Play compliance:
- *  - Only window-state-change events are handled; window content retrieval is disabled, so no
- *    on-screen text or data is ever read. Only the foreground package name is used.
- *  - The overlay is shown ONLY over apps the user explicitly chose to block, never over Settings
- *    or the launcher, and the user can always leave via Home/Recents.
- *  - A confirmed "End session early" control preserves user autonomy.
- *
- * Every callback is wrapped defensively so a transient failure can never crash the process.
+ * Privacy / Play compliance: only the foreground package NAME is ever used; on-screen content is
+ * never inspected or stored. The overlay appears only over user-selected apps, never over Settings
+ * or the launcher, and the user can always leave via Home/Recents.
  */
 @AndroidEntryPoint
 class FocusAccessibilityService : AccessibilityService() {
@@ -50,27 +50,31 @@ class FocusAccessibilityService : AccessibilityService() {
     private val job = SupervisorJob()
     private val serviceScope = CoroutineScope(job + Dispatchers.Main.immediate)
 
-    // Cached repository state, refreshed via collected flows.
     @Volatile private var cachedConfig: AppConfig = AppConfig()
     @Volatile private var cachedEnabled: Set<String> = emptySet()
     @Volatile private var cachedLabels: Map<String, String> = emptyMap()
 
-    // State machine.
     private var activeBlockedPkg: String? = null
     private var activeSessionId: Long? = null
     private var challengeSatisfiedPkg: String? = null
+    @Volatile private var lastForegroundPkg: String? = null
+
     private var completionJob: Job? = null
+    private var pollJob: Job? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         runCatching { applyServiceInfo() }
         observeRepositories()
+        startForegroundPolling()
     }
 
     private fun applyServiceInfo() {
         val info = (serviceInfo ?: AccessibilityServiceInfo()).apply {
-            eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+            eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or
+                AccessibilityEvent.TYPE_WINDOWS_CHANGED
             feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
+            flags = flags or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
             notificationTimeout = 100
         }
         serviceInfo = info
@@ -80,12 +84,11 @@ class FocusAccessibilityService : AccessibilityService() {
         appConfigRepository.observeConfig()
             .onEach { config ->
                 cachedConfig = config
-                // If the user turns blocking off mid-challenge, release the overlay immediately.
                 if (!config.isBlockingEnabled && activeBlockedPkg != null) {
                     teardown(abandon = true)
                 }
             }
-            .catch { /* never crash the service on a repository error */ }
+            .catch { }
             .launchIn(serviceScope)
 
         blockedAppRepository.observeBlockedApps()
@@ -95,51 +98,69 @@ class FocusAccessibilityService : AccessibilityService() {
                     .filter { it.isEnabled }
                     .map { it.packageName }
                     .toSet()
-                // If the app being challenged was disabled/removed, release it.
                 val active = activeBlockedPkg
                 if (active != null && !cachedEnabled.contains(active)) {
                     teardown(abandon = true)
                 }
+                // Re-check the current foreground now that the blocklist is known (fixes the
+                // "already open when blocking was enabled" gap).
+                evaluate(lastForegroundPkg)
             }
-            .catch { /* never crash the service on a repository error */ }
+            .catch { }
             .launchIn(serviceScope)
+    }
+
+    private fun startForegroundPolling() {
+        pollJob?.cancel()
+        pollJob = serviceScope.launch {
+            while (isActive) {
+                delay(POLL_MS)
+                val pkg = runCatching { rootInActiveWindow?.packageName?.toString() }.getOrNull()
+                    ?: lastForegroundPkg
+                if (pkg != null) {
+                    lastForegroundPkg = pkg
+                    runCatching { evaluate(pkg) }
+                }
+            }
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         try {
-            handleEvent(event)
+            if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+                val pkg = event.packageName?.toString()
+                if (!pkg.isNullOrBlank()) {
+                    lastForegroundPkg = pkg
+                    evaluate(pkg)
+                }
+            }
         } catch (t: Throwable) {
             // A single bad event must never take down the detector.
         }
     }
 
-    private fun handleEvent(event: AccessibilityEvent?) {
-        event ?: return
-        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
-
-        val pkg = event.packageName?.toString()
-        if (pkg.isNullOrBlank()) return
-        // Ignore our own windows (including the overlay itself) so we don't fight ourselves.
-        if (pkg == packageName) return
+    /**
+     * Central self-healing state machine. Safe to call repeatedly from events and the poller.
+     */
+    private fun evaluate(pkg: String?) {
+        if (pkg.isNullOrBlank() || pkg == packageName) return
 
         val config = cachedConfig
-        val enabled = cachedEnabled
-        val isBlockedNow = config.isBlockingEnabled && enabled.contains(pkg)
+        val blockedUnsatisfied = config.isBlockingEnabled &&
+            cachedEnabled.contains(pkg) &&
+            pkg != challengeSatisfiedPkg
 
-        // A blocked app just came forward and it isn't already satisfied/active: challenge it.
-        if (isBlockedNow && pkg != challengeSatisfiedPkg && pkg != activeBlockedPkg) {
+        if (blockedUnsatisfied) {
+            // Already actively challenging this exact app with the overlay up? Leave the timer be.
+            if (activeBlockedPkg == pkg && overlayManager.isShowing) return
             startChallengeFor(pkg)
-            return
-        }
-
-        // The foreground moved somewhere other than the app we're actively challenging.
-        if (pkg != activeBlockedPkg) {
-            if (activeBlockedPkg != null) {
-                // User left the challenged app (Home/Recents/another app): release the overlay.
+        } else {
+            // Launcher / Recents / a satisfied app / blocking-off. Release any active challenge.
+            if (activeBlockedPkg != null && activeBlockedPkg != pkg) {
                 teardown(abandon = true)
             }
-            // Once the user genuinely moves to a different app, clear the satisfied marker so
-            // re-opening the blocked app requires the challenge again.
+            // Moving to any genuinely different app clears the satisfied marker, so re-opening a
+            // blocked app always requires the challenge again.
             if (pkg != challengeSatisfiedPkg) {
                 challengeSatisfiedPkg = null
             }
@@ -147,17 +168,21 @@ class FocusAccessibilityService : AccessibilityService() {
     }
 
     private fun startChallengeFor(pkg: String) {
-        // Mark synchronously so rapid repeat events don't double-trigger.
         activeBlockedPkg = pkg
         val config = cachedConfig
-        val durationMillis = config.challengeDurationMinutes.toLong() * 60_000L
+        val factor = config.difficulty.factor
+        val durationMillis = (config.challengeDurationMinutes.toLong() * 60_000L * factor)
+            .toLong().coerceAtLeast(30_000L)
+        val shakeTarget = (config.shakeCount * factor).toInt().coerceAtLeast(3)
+        val mathTotal = (config.mathProblemCount * factor).toInt().coerceAtLeast(1)
+        // Harder difficulty = stricter motion (lower tolerance).
+        val motionTolerance = (config.motionTolerance / factor).coerceIn(0f, 3f)
 
         serviceScope.launch {
             val sessionId = runCatching {
                 focusSessionRepository.startSession(pkg, durationMillis)
             }.getOrNull()
 
-            // The user may have left while the session row was being created; roll back if so.
             if (activeBlockedPkg != pkg) {
                 if (sessionId != null) runCatching { focusSessionRepository.abandonSession(sessionId) }
                 return@launch
@@ -169,9 +194,9 @@ class FocusAccessibilityService : AccessibilityService() {
                     type = config.challengeType,
                     durationMillis = durationMillis,
                     requireFaceDown = config.requireFaceDown,
-                    motionTolerance = config.motionTolerance,
-                    shakeTarget = config.shakeCount,
-                    mathTotal = config.mathProblemCount
+                    motionTolerance = motionTolerance,
+                    shakeTarget = shakeTarget,
+                    mathTotal = mathTotal
                 )
             }
             runCatching {
@@ -179,7 +204,8 @@ class FocusAccessibilityService : AccessibilityService() {
                     triggeringLabel = cachedLabels[pkg] ?: pkg,
                     stateFlow = challengeManager.state,
                     onEndEarly = { endEarly() },
-                    onMathAnswer = { answer -> runCatching { challengeManager.submitMathAnswer(answer) } }
+                    onMathAnswer = { answer -> runCatching { challengeManager.submitMathAnswer(answer) } },
+                    onLeaveToHome = { leaveToHome() }
                 )
             }
             observeCompletion(pkg)
@@ -211,7 +237,7 @@ class FocusAccessibilityService : AccessibilityService() {
         }
     }
 
-    /** Invoked from the overlay's confirmed "End session early" action. */
+    /** Confirmed "End session early": grants access and abandons the session. */
     private fun endEarly() {
         val pkg = activeBlockedPkg
         val id = activeSessionId
@@ -224,6 +250,16 @@ class FocusAccessibilityService : AccessibilityService() {
         if (id != null) {
             serviceScope.launch { runCatching { focusSessionRepository.abandonSession(id) } }
         }
+    }
+
+    /**
+     * "Use another app": leaves to the launcher WITHOUT unlocking the blocked app, so the user can
+     * open something else while a timed/math challenge is pending. The blocked app stays blocked
+     * and will challenge again when reopened.
+     */
+    private fun leaveToHome() {
+        teardown(abandon = true)
+        runCatching { performGlobalAction(GLOBAL_ACTION_HOME) }
     }
 
     private fun teardown(abandon: Boolean) {
@@ -243,15 +279,21 @@ class FocusAccessibilityService : AccessibilityService() {
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
+        pollJob?.cancel()
         runCatching { challengeManager.stop() }
         runCatching { overlayManager.hideOverlay() }
         return super.onUnbind(intent)
     }
 
     override fun onDestroy() {
+        pollJob?.cancel()
         runCatching { challengeManager.stop() }
         runCatching { overlayManager.hideOverlay() }
         runCatching { job.cancel() }
         super.onDestroy()
+    }
+
+    private companion object {
+        const val POLL_MS = 600L
     }
 }

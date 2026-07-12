@@ -39,6 +39,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.runtime.collectAsState
 import androidx.navigation.NavController
 import com.fliptofocus.domain.model.ChallengeType
+import com.fliptofocus.domain.model.Difficulty
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -72,6 +73,11 @@ fun SettingsScreen(
             ChallengeMethodCard(
                 selected = uiState.challengeType,
                 onSelect = viewModel::setChallengeType
+            )
+
+            DifficultyCard(
+                selected = uiState.difficulty,
+                onSelect = viewModel::setDifficulty
             )
 
             when (uiState.challengeType) {
@@ -126,6 +132,45 @@ private fun ChallengeMethodCard(
                     )
                     Text(
                         text = type.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DifficultyCard(
+    selected: Difficulty,
+    onSelect: (Difficulty) -> Unit
+) {
+    SettingCard(title = "Difficulty") {
+        Text(
+            text = "Scales the challenge: a longer timer, more shakes/problems, and stricter motion.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(8.dp))
+        Difficulty.entries.forEach { level ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onSelect(level) }
+                    .padding(vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RadioButton(selected = level == selected, onClick = { onSelect(level) })
+                Spacer(Modifier.size(8.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = level.displayName,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = level.description,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

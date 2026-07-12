@@ -2,10 +2,12 @@ package com.fliptofocus.di
 
 import android.content.Context
 import androidx.room.Room
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.fliptofocus.data.local.AppConfigDao
 import com.fliptofocus.data.local.BlockedAppDao
-import com.fliptofocus.data.local.FocusSessionDao
 import com.fliptofocus.data.local.FlipToFocusDatabase
+import com.fliptofocus.data.local.FocusSessionDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -17,6 +19,19 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object DatabaseModule {
 
+    /**
+     * Adds the `difficulty` column introduced in schema v3, defaulting existing rows to MEDIUM.
+     * Using an explicit migration (instead of destructive) preserves the user's blocklist and
+     * focus history across the update.
+     */
+    private val MIGRATION_2_3 = object : Migration(2, 3) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "ALTER TABLE app_config ADD COLUMN difficulty TEXT NOT NULL DEFAULT 'MEDIUM'"
+            )
+        }
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext ctx: Context): FlipToFocusDatabase =
@@ -25,6 +40,7 @@ object DatabaseModule {
             FlipToFocusDatabase::class.java,
             "fliptofocus.db"
         )
+            .addMigrations(MIGRATION_2_3)
             .fallbackToDestructiveMigration()
             .build()
 

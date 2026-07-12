@@ -2,13 +2,16 @@ package com.fliptofocus.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 
 private val LightColors = lightColorScheme(
     primary = PrimaryLight,
@@ -50,14 +53,23 @@ private val DarkColors = darkColorScheme(
     outline = OutlineDark
 )
 
+/** Softly rounded shapes for a modern, friendly look (cards, sheets, fields). */
+private val AppShapes = Shapes(
+    extraSmall = RoundedCornerShape(8.dp),
+    small = RoundedCornerShape(12.dp),
+    medium = RoundedCornerShape(16.dp),
+    large = RoundedCornerShape(24.dp),
+    extraLarge = RoundedCornerShape(32.dp)
+)
+
 /**
- * App-wide Compose theme. Dynamic color (Material You) is enabled by default on
- * Android 12+ and falls back to the branded light/dark schemes otherwise.
+ * App-wide Compose theme. Dynamic color (Material You) is OFF by default so the FlipToFocus brand
+ * palette shows consistently on every device; pass dynamicColor = true to opt in.
  */
 @Composable
 fun FlipToFocusTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = true,
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {
@@ -72,6 +84,7 @@ fun FlipToFocusTheme(
     MaterialTheme(
         colorScheme = colorScheme,
         typography = Typography,
+        shapes = AppShapes,
         content = content
     )
 }

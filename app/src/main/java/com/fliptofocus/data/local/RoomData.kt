@@ -1,5 +1,6 @@
 package com.fliptofocus.data.local
 
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -37,6 +38,7 @@ data class FocusSessionEntity(
 data class AppConfigEntity(
     @PrimaryKey val id: Int = 1,
     val challengeType: String,
+    @ColumnInfo(defaultValue = "MEDIUM") val difficulty: String,
     val challengeDurationMinutes: Int,
     val requireFaceDown: Boolean,
     val motionTolerance: Float,
@@ -89,6 +91,12 @@ interface FocusSessionDao {
 
     @Query("SELECT * FROM focus_sessions WHERE status = 'IN_PROGRESS' ORDER BY startTimestamp DESC LIMIT 1")
     suspend fun getActive(): FocusSessionEntity?
+
+    @Query("DELETE FROM focus_sessions WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
+    @Query("DELETE FROM focus_sessions")
+    suspend fun clearAll()
 }
 
 @Dao
@@ -109,7 +117,7 @@ interface AppConfigDao {
 
 @Database(
     entities = [BlockedAppEntity::class, FocusSessionEntity::class, AppConfigEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class FlipToFocusDatabase : RoomDatabase() {

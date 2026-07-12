@@ -9,4 +9,6 @@ interface FocusSessionRepository {
     suspend fun abandonSession(id: Long)
     fun observeSessions(): Flow<List<FocusSession>>
     suspend fun getActiveSession(): FocusSession?
+    suspend fun deleteSession(id: Long)
+    suspend fun clearHistory()
 }

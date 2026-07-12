@@ -1,7 +1,9 @@
 package com.fliptofocus.ui.home
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -16,6 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
@@ -28,17 +31,23 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -48,7 +57,6 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.compose.runtime.collectAsState
 import androidx.navigation.NavController
 import com.fliptofocus.domain.model.FocusSession
 import com.fliptofocus.domain.model.SessionStatus
@@ -57,10 +65,12 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+private val HeaderStart = Color(0xFF5B4BE1)
+private val HeaderEnd = Color(0xFF8B5CF6)
 private val ReadyGreen = Color(0xFF2E7D32)
 private val WarnAmber = Color(0xFFEF6C00)
+private val DeleteRed = Color(0xFFE53935)
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     navController: NavController,
@@ -69,8 +79,6 @@ fun HomeScreen(
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
 
-    // Re-read the two special permissions whenever the screen resumes (the user may toggle them in
-    // system settings and return), so the status card is always accurate.
     var accessibilityOn by remember { mutableStateOf(PermissionUtils.isAccessibilityServiceEnabled(context)) }
     var overlayOn by remember { mutableStateOf(PermissionUtils.canDrawOverlays(context)) }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -84,77 +92,130 @@ fun HomeScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
+    val ready = accessibilityOn && overlayOn
 
-    Scaffold(
-        topBar = { TopAppBar(title = { Text("FlipToFocus") }) }
-    ) { innerPadding ->
+    Scaffold { innerPadding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
-            contentPadding = PaddingValues(16.dp),
+                .padding(top = innerPadding.calculateTopPadding()),
+            contentPadding = PaddingValues(bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
-                FocusModeStatusCard(
-                    ready = accessibilityOn && overlayOn,
-                    accessibilityOn = accessibilityOn,
-                    overlayOn = overlayOn,
-                    onFixAccessibility = {
-                        runCatching { context.startActivity(PermissionUtils.accessibilitySettingsIntent()) }
-                    },
-                    onFixOverlay = {
-                        runCatching { context.startActivity(PermissionUtils.overlaySettingsIntent(context)) }
+                DashboardHeader(
+                    streakDays = uiState.streakDays,
+                    ready = ready,
+                    blockingEnabled = uiState.isBlockingEnabled
+                )
+            }
+
+            if (!ready) {
+                item {
+                    SetupCard(
+                        accessibilityOn = accessibilityOn,
+                        overlayOn = overlayOn,
+                        onFixAccessibility = {
+                            runCatching { context.startActivity(PermissionUtils.accessibilitySettingsIntent()) }
+                        },
+                        onFixOverlay = {
+                            runCatching { context.startActivity(PermissionUtils.overlaySettingsIntent(context)) }
+                        }
+                    )
+                }
+            }
+
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    StatTile(
+                        modifier = Modifier.weight(1f),
+                        emoji = "🔥",
+                        value = "${uiState.streakDays}",
+                        label = if (uiState.streakDays == 1) "day streak" else "day streak"
+                    )
+                    StatTile(
+                        modifier = Modifier.weight(1f),
+                        emoji = "✅",
+                        value = "${uiState.completedCount}",
+                        label = "completed"
+                    )
+                }
+            }
+
+            item {
+                Padded {
+                    BlockingToggleCard(
+                        isEnabled = uiState.isBlockingEnabled,
+                        enabledAppCount = uiState.enabledAppCount,
+                        onToggle = { enabled -> viewModel.setBlockingEnabled(enabled) }
+                    )
+                }
+            }
+
+            item {
+                Padded {
+                    NavRow(
+                        title = "Choose apps to block",
+                        subtitle = "${uiState.enabledAppCount} app(s) currently blocked",
+                        icon = Icons.Filled.List,
+                        onClick = { navController.navigate("blocklist") }
+                    )
+                }
+            }
+
+            item {
+                Padded {
+                    NavRow(
+                        title = "Settings",
+                        subtitle = "Unlock method, difficulty, timer",
+                        icon = Icons.Filled.Settings,
+                        onClick = { navController.navigate("settings") }
+                    )
+                }
+            }
+
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Recent focus breaks",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (uiState.recentSessions.isNotEmpty()) {
+                        TextButton(onClick = { viewModel.clearHistory() }) { Text("Clear all") }
                     }
-                )
-            }
-
-            item {
-                BlockingToggleCard(
-                    isEnabled = uiState.isBlockingEnabled,
-                    enabledAppCount = uiState.enabledAppCount,
-                    onToggle = { enabled -> viewModel.setBlockingEnabled(enabled) }
-                )
-            }
-
-            item {
-                NavRow(
-                    title = "Choose apps to block",
-                    subtitle = "${uiState.enabledAppCount} app(s) currently blocked",
-                    icon = Icons.Filled.List,
-                    onClick = { navController.navigate("blocklist") }
-                )
-            }
-
-            item {
-                NavRow(
-                    title = "Settings",
-                    subtitle = "Unlock method, timer, sensitivity",
-                    icon = Icons.Filled.Settings,
-                    onClick = { navController.navigate("settings") }
-                )
-            }
-
-            item {
-                Text(
-                    text = "Recent focus breaks",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
+                }
             }
 
             if (uiState.recentSessions.isEmpty()) {
                 item {
-                    Text(
-                        text = "No focus breaks yet. When you open a blocked app, your mindful breaks will appear here.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Padded {
+                        Text(
+                            text = "No focus breaks yet. Open a blocked app and your mindful breaks will appear here. Swipe a row to delete it.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             } else {
                 items(uiState.recentSessions, key = { it.id }) { session ->
-                    SessionRow(session)
+                    Padded {
+                        SwipeableSessionRow(
+                            session = session,
+                            onDelete = { viewModel.deleteSession(session.id) }
+                        )
+                    }
                 }
             }
         }
@@ -162,55 +223,112 @@ fun HomeScreen(
 }
 
 @Composable
-private fun FocusModeStatusCard(
-    ready: Boolean,
+private fun Padded(content: @Composable () -> Unit) {
+    Box(modifier = Modifier.padding(horizontal = 16.dp)) { content() }
+}
+
+@Composable
+private fun DashboardHeader(streakDays: Int, ready: Boolean, blockingEnabled: Boolean) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp))
+            .background(Brush.linearGradient(listOf(HeaderStart, HeaderEnd)))
+            .padding(horizontal = 20.dp, vertical = 28.dp)
+    ) {
+        Column {
+            Text(
+                text = "FlipToFocus",
+                color = Color.White,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = when {
+                    !ready -> "Finish setup to activate Focus Mode"
+                    blockingEnabled -> "Focus Mode is on. Stay strong 💪"
+                    else -> "Blocking is paused"
+                },
+                color = Color.White.copy(alpha = 0.9f),
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(Modifier.height(16.dp))
+            Surface(
+                color = Color.White.copy(alpha = 0.18f),
+                shape = RoundedCornerShape(50)
+            ) {
+                Text(
+                    text = "🔥  $streakDays day streak",
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatTile(modifier: Modifier, emoji: String, value: String, label: String) {
+    Card(modifier = modifier) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(text = emoji, style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = value,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun SetupCard(
     accessibilityOn: Boolean,
     overlayOn: Boolean,
     onFixAccessibility: () -> Unit,
     onFixOverlay: () -> Unit
 ) {
-    val accent = if (ready) ReadyGreen else WarnAmber
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = accent.copy(alpha = 0.12f))
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = if (ready) Icons.Filled.CheckCircle else Icons.Filled.Warning,
-                    contentDescription = null,
-                    tint = accent,
-                    modifier = Modifier.size(28.dp)
-                )
-                Spacer(Modifier.size(12.dp))
-                Column {
+    Padded {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = WarnAmber.copy(alpha = 0.12f))
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Warning, contentDescription = null, tint = WarnAmber, modifier = Modifier.size(26.dp))
+                    Spacer(Modifier.size(10.dp))
                     Text(
-                        text = if (ready) "Focus Mode is ready" else "Finish setup",
+                        text = "Finish setup",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
-                        color = accent
-                    )
-                    Text(
-                        text = if (ready) {
-                            "FlipToFocus is watching for blocked apps."
-                        } else {
-                            "FlipToFocus needs a couple of permissions to protect you."
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = WarnAmber
                     )
                 }
-            }
-            if (!accessibilityOn) {
-                Spacer(Modifier.height(12.dp))
-                Button(onClick = onFixAccessibility, modifier = Modifier.fillMaxWidth()) {
-                    Text("Enable Accessibility (foreground detection)")
+                if (!accessibilityOn) {
+                    Spacer(Modifier.height(12.dp))
+                    Button(onClick = onFixAccessibility, modifier = Modifier.fillMaxWidth()) {
+                        Text("Enable Accessibility (app detection)")
+                    }
                 }
-            }
-            if (!overlayOn) {
-                Spacer(Modifier.height(8.dp))
-                Button(onClick = onFixOverlay, modifier = Modifier.fillMaxWidth()) {
-                    Text("Allow Display over other apps")
+                if (!overlayOn) {
+                    Spacer(Modifier.height(8.dp))
+                    Button(onClick = onFixOverlay, modifier = Modifier.fillMaxWidth()) {
+                        Text("Allow Display over other apps")
+                    }
                 }
             }
         }
@@ -287,6 +405,38 @@ private fun NavRow(
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SwipeableSessionRow(session: FocusSession, onDelete: () -> Unit) {
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            if (value != SwipeToDismissBoxValue.Settled) {
+                onDelete()
+                true
+            } else {
+                false
+            }
+        }
+    )
+    SwipeToDismissBox(
+        state = dismissState,
+        backgroundContent = {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(DeleteRed)
+                    .padding(horizontal = 20.dp),
+                contentAlignment = Alignment.CenterEnd
+            ) {
+                Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = Color.White)
+            }
+        }
+    ) {
+        SessionRow(session)
     }
 }
 

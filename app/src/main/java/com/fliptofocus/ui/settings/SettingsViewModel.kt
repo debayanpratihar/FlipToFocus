@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.fliptofocus.domain.model.AppConfig
 import com.fliptofocus.domain.model.ChallengeType
+import com.fliptofocus.domain.model.Difficulty
 import com.fliptofocus.domain.repository.AppConfigRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
@@ -16,6 +17,7 @@ import javax.inject.Inject
 
 data class SettingsUiState(
     val challengeType: ChallengeType = ChallengeType.FLIP,
+    val difficulty: Difficulty = Difficulty.MEDIUM,
     val challengeDurationMinutes: Int = 5,
     val requireFaceDown: Boolean = true,
     val motionTolerance: Float = 1.0f,
@@ -32,6 +34,7 @@ class SettingsViewModel @Inject constructor(
         .map { config ->
             SettingsUiState(
                 challengeType = config.challengeType,
+                difficulty = config.difficulty,
                 challengeDurationMinutes = config.challengeDurationMinutes,
                 requireFaceDown = config.requireFaceDown,
                 motionTolerance = config.motionTolerance,
@@ -47,6 +50,8 @@ class SettingsViewModel @Inject constructor(
         )
 
     fun setChallengeType(type: ChallengeType) = update { it.copy(challengeType = type) }
+
+    fun setDifficulty(difficulty: Difficulty) = update { it.copy(difficulty = difficulty) }
 
     fun setChallengeDuration(minutes: Int) = update {
         it.copy(challengeDurationMinutes = minutes.coerceIn(MIN_MINUTES, MAX_MINUTES))

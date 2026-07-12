@@ -23,6 +23,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -95,7 +96,8 @@ fun FocusOverlayScreen(
     state: ChallengeState,
     triggeringAppLabel: String,
     onEndEarly: () -> Unit,
-    onMathAnswer: (Int) -> Unit = {}
+    onMathAnswer: (Int) -> Unit = {},
+    onLeaveToHome: () -> Unit = {}
 ) {
     // Consume the system back gesture/button so the overlay is not dismissed by Back. The ONLY
     // sanctioned exit is the confirmed "End session early" control.
@@ -187,15 +189,25 @@ fun FocusOverlayScreen(
                         }
                     }
 
-                    TextButton(
-                        onClick = { showEndDialog = true },
-                        modifier = Modifier.align(Alignment.BottomCenter)
+                    Column(
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text(
-                            text = "End session early",
-                            color = OverlayOnSurfaceVariant,
-                            fontSize = 14.sp
-                        )
+                        // For non-physical challenges, let the user step away and use a DIFFERENT
+                        // app while this one stays locked (they don't have to stare at the screen).
+                        if (state.type == ChallengeType.WAIT || state.type == ChallengeType.MATH) {
+                            OutlinedButton(onClick = onLeaveToHome) {
+                                Text(text = "Use another app", fontSize = 14.sp)
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                        }
+                        TextButton(onClick = { showEndDialog = true }) {
+                            Text(
+                                text = "End session early",
+                                color = OverlayOnSurfaceVariant,
+                                fontSize = 14.sp
+                            )
+                        }
                     }
                 }
             }
@@ -316,14 +328,14 @@ private fun EndSessionConfirmation(
         ) {
             Column(modifier = Modifier.padding(24.dp)) {
                 Text(
-                    text = "End this session?",
+                    text = "Lose your streak?",
                     color = OverlayOnBackground,
                     fontSize = 20.sp,
                     fontWeight = FontWeight.SemiBold
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
-                    text = "You can stop the break at any time. This session will be recorded as abandoned and $triggeringAppLabel will open normally.",
+                    text = "Ending now unlocks $triggeringAppLabel, but it breaks your focus streak and logs this break as abandoned. Stay strong?",
                     color = OverlayOnSurfaceVariant,
                     fontSize = 15.sp
                 )

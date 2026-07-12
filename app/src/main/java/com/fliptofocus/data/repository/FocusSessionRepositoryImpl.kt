@@ -53,4 +53,8 @@ class FocusSessionRepositoryImpl @Inject constructor(
 
     override suspend fun getActiveSession(): FocusSession? =
         dao.getActive()?.toDomain()
+
+    override suspend fun deleteSession(id: Long) = dao.deleteById(id)
+
+    override suspend fun clearHistory() = dao.clearAll()
 }
