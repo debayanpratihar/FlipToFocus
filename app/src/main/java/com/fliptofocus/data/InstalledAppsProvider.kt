@@ -24,21 +24,26 @@ class InstalledAppsProvider @Inject constructor(
 ) {
 
     suspend fun getLaunchableApps(): List<BlockedApp> = withContext(Dispatchers.IO) {
-        val pm = context.packageManager
-        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-        val ownPackage = context.packageName
+        // Never throw: any PackageManager quirk falls back to an empty list so the UI degrades
+        // gracefully (shows "no apps") instead of crashing the app.
+        runCatching {
+            val pm = context.packageManager
+            val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+            val ownPackage = context.packageName
 
-        pm.queryIntentActivities(intent, 0)
-            .asSequence()
-            .mapNotNull { resolveInfo ->
-                val pkg = resolveInfo.activityInfo?.packageName ?: return@mapNotNull null
-                if (pkg == ownPackage) return@mapNotNull null
-                val label = resolveInfo.loadLabel(pm)?.toString()?.takeIf { it.isNotBlank() }
-                    ?: pkg
-                BlockedApp(packageName = pkg, appLabel = label, isEnabled = true)
-            }
-            .distinctBy { it.packageName }
-            .sortedBy { it.appLabel.lowercase() }
-            .toList()
+            pm.queryIntentActivities(intent, 0)
+                .asSequence()
+                .mapNotNull { resolveInfo ->
+                    val pkg = resolveInfo.activityInfo?.packageName ?: return@mapNotNull null
+                    if (pkg == ownPackage) return@mapNotNull null
+                    val label = runCatching {
+                        resolveInfo.loadLabel(pm)?.toString()?.takeIf { it.isNotBlank() }
+                    }.getOrNull() ?: pkg
+                    BlockedApp(packageName = pkg, appLabel = label, isEnabled = true)
+                }
+                .distinctBy { it.packageName }
+                .sortedBy { it.appLabel.lowercase() }
+                .toList()
+        }.getOrElse { emptyList() }
     }
 }

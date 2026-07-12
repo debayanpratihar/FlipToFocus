@@ -8,6 +8,7 @@ import com.fliptofocus.domain.repository.AppConfigRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -38,6 +39,7 @@ class SettingsViewModel @Inject constructor(
                 mathProblemCount = config.mathProblemCount
             )
         }
+        .catch { emit(SettingsUiState()) }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS),
@@ -68,8 +70,10 @@ class SettingsViewModel @Inject constructor(
 
     private fun update(transform: (AppConfig) -> AppConfig) {
         viewModelScope.launch {
-            val current = appConfigRepository.getConfig()
-            appConfigRepository.updateConfig(transform(current))
+            runCatching {
+                val current = appConfigRepository.getConfig()
+                appConfigRepository.updateConfig(transform(current))
+            }
         }
     }
 

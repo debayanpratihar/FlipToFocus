@@ -9,6 +9,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -42,7 +43,8 @@ class BlocklistViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            installedApps.value = installedAppsProvider.getLaunchableApps()
+            installedApps.value = runCatching { installedAppsProvider.getLaunchableApps() }
+                .getOrElse { emptyList() }
         }
     }
 
@@ -78,11 +80,13 @@ class BlocklistViewModel @Inject constructor(
                 }
             )
         }
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS),
-        initialValue = BlocklistUiState()
-    )
+    }
+        .catch { emit(BlocklistUiState(isLoading = false)) }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS),
+            initialValue = BlocklistUiState()
+        )
 
     fun onQueryChange(newQuery: String) {
         query.value = newQuery
@@ -93,16 +97,18 @@ class BlocklistViewModel @Inject constructor(
      */
     fun setBlocked(item: BlocklistItem, blocked: Boolean) {
         viewModelScope.launch {
-            if (blocked) {
-                blockedAppRepository.addBlockedApp(
-                    BlockedApp(
-                        packageName = item.packageName,
-                        appLabel = item.appLabel,
-                        isEnabled = true
+            runCatching {
+                if (blocked) {
+                    blockedAppRepository.addBlockedApp(
+                        BlockedApp(
+                            packageName = item.packageName,
+                            appLabel = item.appLabel,
+                            isEnabled = true
+                        )
                     )
-                )
-            } else {
-                blockedAppRepository.removeBlockedApp(item.packageName)
+                } else {
+                    blockedAppRepository.removeBlockedApp(item.packageName)
+                }
             }
         }
     }

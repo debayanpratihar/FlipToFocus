@@ -9,6 +9,7 @@ import com.fliptofocus.domain.repository.FocusSessionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -40,7 +41,9 @@ class HomeViewModel @Inject constructor(
             enabledAppCount = enabledPackages.size,
             recentSessions = sessions.take(RECENT_SESSION_LIMIT)
         )
-    }.stateIn(
+    }
+        .catch { emit(HomeUiState()) }
+        .stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS),
         initialValue = HomeUiState()
@@ -52,8 +55,10 @@ class HomeViewModel @Inject constructor(
      */
     fun setBlockingEnabled(enabled: Boolean) {
         viewModelScope.launch {
-            val current = appConfigRepository.getConfig()
-            appConfigRepository.updateConfig(current.copy(isBlockingEnabled = enabled))
+            runCatching {
+                val current = appConfigRepository.getConfig()
+                appConfigRepository.updateConfig(current.copy(isBlockingEnabled = enabled))
+            }
         }
     }
 
