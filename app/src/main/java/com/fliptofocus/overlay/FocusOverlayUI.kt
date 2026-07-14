@@ -99,6 +99,7 @@ private fun copyFor(type: ChallengeType, app: String): ChallengeCopy {
     val subtitle = when (type) {
         ChallengeType.FLIP -> "$app is locked. Place your phone face-down and hold still to unlock."
         ChallengeType.WAIT -> "$app is locked. Wait for the timer to finish to unlock."
+        ChallengeType.COOLDOWN -> "$app is on cooldown. It unlocks when the timer ends - you can leave and use other apps meanwhile."
         ChallengeType.SHAKE -> "$app is locked. Shake your phone to unlock."
         ChallengeType.MATH -> "$app is locked. Solve the problems to unlock."
     }
@@ -197,6 +198,16 @@ fun FocusOverlayScreen(
                                 Spacer(modifier = Modifier.height(24.dp))
                                 Hint("Relax - the timer keeps running on its own.")
                             }
+                            ChallengeType.COOLDOWN -> {
+                                ProgressRing(
+                                    progress = state.progress,
+                                    isComplete = state.isComplete,
+                                    bigText = formatMillis(state.remainingMillis),
+                                    smallText = if (state.isComplete) "Unlocked" else "until unlock"
+                                )
+                                Spacer(modifier = Modifier.height(24.dp))
+                                Hint("The timer keeps running even if you leave - use other apps freely.")
+                            }
                             ChallengeType.SHAKE -> {
                                 ProgressRing(
                                     progress = state.progress,
@@ -219,7 +230,10 @@ fun FocusOverlayScreen(
                     ) {
                         // For non-physical challenges, let the user step away and use a DIFFERENT
                         // app while this one stays locked (they don't have to stare at the screen).
-                        if (state.type == ChallengeType.WAIT || state.type == ChallengeType.MATH) {
+                        if (state.type == ChallengeType.WAIT ||
+                            state.type == ChallengeType.MATH ||
+                            state.type == ChallengeType.COOLDOWN
+                        ) {
                             OutlinedButton(onClick = onLeaveToHome) {
                                 Text(text = "Use another app", fontSize = 14.sp)
                             }

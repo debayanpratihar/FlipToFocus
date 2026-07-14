@@ -136,7 +136,7 @@ fun SettingsScreen(
                             onCommit = { viewModel.setMotionTolerance(it) }
                         )
                     }
-                    ChallengeType.WAIT -> {
+                    ChallengeType.WAIT, ChallengeType.COOLDOWN -> {
                         SliderRow(
                             title = "Timer",
                             value = uiState.challengeDurationMinutes.toFloat(),

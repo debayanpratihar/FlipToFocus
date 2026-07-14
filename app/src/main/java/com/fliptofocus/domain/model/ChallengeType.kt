@@ -24,6 +24,12 @@ enum class ChallengeType(
         description = "Just wait out a countdown. A gentle pause before you dive in."
     ),
 
+    /** A background lock: the timer keeps running even if you leave; the app unlocks when it ends. */
+    COOLDOWN(
+        displayName = "Cooldown lock",
+        description = "Locks the app for a set time. Leave and use other apps - it keeps counting and never resets, then unlocks."
+    ),
+
     /** Shake the phone a configurable number of times to burn off the impulse. */
     SHAKE(
         displayName = "Shake it off",

@@ -11,6 +11,9 @@
     <!-- Draw the offline focus overlay over user-selected distracting apps only. -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
+    <!-- Haptic feedback on wrong placement / challenge completion. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
     <!--
          Resolve the launchable installed apps for the blocklist screen using
          queryIntentActivities(ACTION_MAIN / CATEGORY_LAUNCHER) - NOT QUERY_ALL_PACKAGES.

@@ -3,12 +3,15 @@ package com.fliptofocus.service
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.Intent
+import android.os.SystemClock
 import android.view.accessibility.AccessibilityEvent
 import com.fliptofocus.domain.model.AppConfig
+import com.fliptofocus.domain.model.ChallengeType
 import com.fliptofocus.domain.repository.AppConfigRepository
 import com.fliptofocus.domain.repository.BlockedAppRepository
 import com.fliptofocus.domain.repository.FocusSessionRepository
 import com.fliptofocus.sensor.SensorChallengeManager
+import com.fliptofocus.util.Haptics
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -61,7 +64,13 @@ class FocusAccessibilityService : AccessibilityService() {
 
     private var completionJob: Job? = null
     private var pollJob: Job? = null
-    private var pendingTeardownJob: Job? = null
+
+    // Cooldown-lock state: a timer that persists in the background and never resets.
+    private var cooldownPkg: String? = null
+    private var cooldownSessionId: Long? = null
+    private var cooldownEndElapsed: Long = 0L
+    private var cooldownTotalMillis: Long = 0L
+    private var cooldownJob: Job? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -85,8 +94,9 @@ class FocusAccessibilityService : AccessibilityService() {
         appConfigRepository.observeConfig()
             .onEach { config ->
                 cachedConfig = config
-                if (!config.isBlockingEnabled && activeBlockedPkg != null) {
-                    teardown(abandon = true)
+                if (!config.isBlockingEnabled) {
+                    if (activeBlockedPkg != null) teardown(abandon = true)
+                    if (cooldownPkg != null) cancelCooldown()
                 }
             }
             .catch { }
@@ -102,6 +112,10 @@ class FocusAccessibilityService : AccessibilityService() {
                 val active = activeBlockedPkg
                 if (active != null && !cachedEnabled.contains(active)) {
                     teardown(abandon = true)
+                }
+                val cd = cooldownPkg
+                if (cd != null && !cachedEnabled.contains(cd)) {
+                    cancelCooldown()
                 }
                 // Re-check the current foreground now that the blocklist is known (fixes the
                 // "already open when blocking was enabled" gap).
@@ -151,38 +165,26 @@ class FocusAccessibilityService : AccessibilityService() {
             cachedEnabled.contains(pkg) &&
             pkg != challengeSatisfiedPkg
 
+        // Cooldown lock is a persistent background timer - handled on its own path.
+        if (config.challengeType == ChallengeType.COOLDOWN) {
+            handleCooldownEvaluate(pkg, blockedUnsatisfied)
+            return
+        }
+
         if (blockedUnsatisfied) {
-            // Returning to the blocked app cancels any pending teardown so the overlay never
-            // flickers away and back (e.g. a quick Recents peek).
-            pendingTeardownJob?.cancel()
-            pendingTeardownJob = null
             // Already actively challenging this exact app with the overlay up? Leave the timer be.
             if (activeBlockedPkg == pkg && overlayManager.isShowing) return
             startChallengeFor(pkg)
         } else {
-            // Launcher / Recents / a satisfied app / blocking-off. Release any active challenge,
-            // but debounced so brief transitions don't tear the overlay down.
+            // The foreground left the challenged app: release the overlay IMMEDIATELY so Recents,
+            // Home, and other apps are never covered or frozen (no debounce delay).
             if (activeBlockedPkg != null && activeBlockedPkg != pkg) {
-                scheduleTeardown()
+                teardown(abandon = true)
             }
-            // Moving to any genuinely different app clears the satisfied marker, so re-opening a
-            // blocked app always requires the challenge again.
+            // Moving to a genuinely different app clears the satisfied marker.
             if (pkg != challengeSatisfiedPkg) {
                 challengeSatisfiedPkg = null
             }
-        }
-    }
-
-    /**
-     * Removes the overlay only if the user stays away from the blocked app for
-     * [TEARDOWN_GRACE_MS]. Eliminates flicker from transient transitions such as opening Recents
-     * and immediately returning.
-     */
-    private fun scheduleTeardown() {
-        if (pendingTeardownJob?.isActive == true) return
-        pendingTeardownJob = serviceScope.launch {
-            delay(TEARDOWN_GRACE_MS)
-            teardown(abandon = true)
         }
     }
 
@@ -251,12 +253,16 @@ class FocusAccessibilityService : AccessibilityService() {
         completionJob?.cancel()
         runCatching { challengeManager.stop() }
         runCatching { overlayManager.hideOverlay() }
+        runCatching { Haptics.success(this) }
+        // Unlock this app for good: disable it in the blocklist so it opens freely until the user
+        // deliberately re-enables it in FlipToFocus (no repeat lock on next open).
+        serviceScope.launch { runCatching { blockedAppRepository.setEnabled(pkg, false) } }
         if (id != null) {
             serviceScope.launch { runCatching { focusSessionRepository.completeSession(id) } }
         }
     }
 
-    /** Confirmed "End session early": grants access and abandons the session. */
+    /** Confirmed "End session early": unlocks and disables the app until re-enabled. */
     private fun endEarly() {
         val pkg = activeBlockedPkg
         val id = activeSessionId
@@ -266,6 +272,9 @@ class FocusAccessibilityService : AccessibilityService() {
         completionJob?.cancel()
         runCatching { challengeManager.stop() }
         runCatching { overlayManager.hideOverlay() }
+        if (pkg != null) {
+            serviceScope.launch { runCatching { blockedAppRepository.setEnabled(pkg, false) } }
+        }
         if (id != null) {
             serviceScope.launch { runCatching { focusSessionRepository.abandonSession(id) } }
         }
@@ -277,12 +286,144 @@ class FocusAccessibilityService : AccessibilityService() {
      * and will challenge again when reopened.
      */
     private fun leaveToHome() {
-        teardown(abandon = true)
+        if (cooldownPkg != null) {
+            // A cooldown must keep counting in the background: only hide the overlay, never cancel.
+            runCatching { overlayManager.hideOverlay() }
+            runCatching { challengeManager.stop() }
+        } else {
+            teardown(abandon = true)
+        }
         runCatching { performGlobalAction(GLOBAL_ACTION_HOME) }
     }
 
+    // --- Cooldown lock (persistent background timer) -------------------------------------------
+
+    private fun handleCooldownEvaluate(pkg: String, blockedUnsatisfied: Boolean) {
+        when {
+            blockedUnsatisfied && cooldownPkg == pkg -> {
+                // Cooldown already running for this app: just make sure the overlay is visible.
+                if (!overlayManager.isShowing) showCooldownOverlay(pkg)
+            }
+            blockedUnsatisfied -> startCooldown(pkg)
+            else -> {
+                // Away from the cooldown app: hide the overlay but KEEP the timer counting.
+                if (cooldownPkg != null && overlayManager.isShowing) {
+                    runCatching { overlayManager.hideOverlay() }
+                    runCatching { challengeManager.stop() }
+                }
+                if (pkg != challengeSatisfiedPkg) challengeSatisfiedPkg = null
+            }
+        }
+    }
+
+    private fun startCooldown(pkg: String) {
+        // Single active cooldown: abandon a previous one for a different app.
+        val previousId = if (cooldownPkg != null && cooldownPkg != pkg) cooldownSessionId else null
+        cooldownJob?.cancel()
+        completionJob?.cancel()
+        if (previousId != null) {
+            serviceScope.launch { runCatching { focusSessionRepository.abandonSession(previousId) } }
+        }
+
+        val config = cachedConfig
+        val factor = config.difficulty.factor
+        val durationMillis = (config.challengeDurationMinutes.toLong() * 60_000L * factor)
+            .toLong().coerceAtLeast(30_000L)
+
+        cooldownPkg = pkg
+        cooldownTotalMillis = durationMillis
+        cooldownEndElapsed = SystemClock.elapsedRealtime() + durationMillis
+        cooldownSessionId = null
+        serviceScope.launch {
+            cooldownSessionId = runCatching {
+                focusSessionRepository.startSession(pkg, durationMillis)
+            }.getOrNull()
+        }
+
+        // Background completion: fires even if the user is in a different app the whole time.
+        cooldownJob = serviceScope.launch {
+            val remaining = (cooldownEndElapsed - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+            delay(remaining)
+            completeCooldown(pkg)
+        }
+        showCooldownOverlay(pkg)
+    }
+
+    private fun showCooldownOverlay(pkg: String) {
+        val remaining = (cooldownEndElapsed - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+        if (remaining <= 0L) {
+            completeCooldown(pkg)
+            return
+        }
+        val elapsed = (cooldownTotalMillis - remaining).coerceAtLeast(0L)
+        runCatching {
+            challengeManager.start(
+                type = ChallengeType.COOLDOWN,
+                durationMillis = cooldownTotalMillis,
+                requireFaceDown = false,
+                motionTolerance = 0f,
+                shakeTarget = 1,
+                mathTotal = 1,
+                elapsedMillis = elapsed
+            )
+        }
+        runCatching {
+            overlayManager.showOverlay(
+                triggeringLabel = cachedLabels[pkg] ?: pkg,
+                stateFlow = challengeManager.state,
+                onEndEarly = { endCooldownEarly() },
+                onMathAnswer = {},
+                onLeaveToHome = { leaveToHome() }
+            )
+        }
+    }
+
+    private fun completeCooldown(pkg: String) {
+        if (cooldownPkg != pkg) return
+        val id = cooldownSessionId
+        cooldownPkg = null
+        cooldownSessionId = null
+        cooldownJob?.cancel()
+        cooldownJob = null
+        challengeSatisfiedPkg = pkg
+        runCatching { challengeManager.stop() }
+        runCatching { overlayManager.hideOverlay() }
+        runCatching { Haptics.success(this) }
+        // Unlock: disable the app until the user re-enables it (same as other challenges).
+        serviceScope.launch { runCatching { blockedAppRepository.setEnabled(pkg, false) } }
+        if (id != null) {
+            serviceScope.launch { runCatching { focusSessionRepository.completeSession(id) } }
+        }
+    }
+
+    private fun endCooldownEarly() {
+        val pkg = cooldownPkg
+        val id = cooldownSessionId
+        cooldownPkg = null
+        cooldownSessionId = null
+        cooldownJob?.cancel()
+        cooldownJob = null
+        if (pkg != null) challengeSatisfiedPkg = pkg
+        runCatching { challengeManager.stop() }
+        runCatching { overlayManager.hideOverlay() }
+        if (pkg != null) {
+            serviceScope.launch { runCatching { blockedAppRepository.setEnabled(pkg, false) } }
+        }
+        if (id != null) {
+            serviceScope.launch { runCatching { focusSessionRepository.abandonSession(id) } }
+        }
+    }
+
+    private fun cancelCooldown() {
+        cooldownPkg = null
+        cooldownSessionId = null
+        cooldownJob?.cancel()
+        cooldownJob = null
+        runCatching { challengeManager.stop() }
+        runCatching { overlayManager.hideOverlay() }
+    }
+
     private fun teardown(abandon: Boolean) {
-        pendingTeardownJob = null
         val id = activeSessionId
         activeSessionId = null
         activeBlockedPkg = null
@@ -314,7 +455,6 @@ class FocusAccessibilityService : AccessibilityService() {
     }
 
     private companion object {
-        const val POLL_MS = 600L
-        const val TEARDOWN_GRACE_MS = 700L
+        const val POLL_MS = 350L
     }
 }

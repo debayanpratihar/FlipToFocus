@@ -91,7 +91,9 @@ class OverlayManager @Inject constructor(
             // (there is no Activity to do this for us); if nothing is registered, Back is still
             // consumed at the view level and cannot reach the app behind the overlay.
             val root = BackHandlingOverlayLayout(context) {
-                owner.onBackPressedDispatcher.onBackPressed()
+                // Handle Back directly (not via the Compose dispatcher) so it is reliable on every
+                // device and API level: leave the locked app instead of freezing on it.
+                onLeaveToHome()
             }
             // Owners are set on the root; the child ComposeView resolves them by walking up the tree.
             root.setViewTreeLifecycleOwner(owner)

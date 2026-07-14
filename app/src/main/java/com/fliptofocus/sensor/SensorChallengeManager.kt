@@ -1,11 +1,14 @@
 package com.fliptofocus.sensor
 
+import android.content.Context
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.SystemClock
 import com.fliptofocus.domain.model.ChallengeType
+import com.fliptofocus.util.Haptics
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -33,6 +36,7 @@ import kotlin.random.Random
  */
 @Singleton
 class SensorChallengeManager @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val sensorManager: SensorManager
 ) : SensorEventListener {
 
@@ -48,6 +52,7 @@ class SensorChallengeManager @Inject constructor(
     // Active-challenge configuration (written on start(), read from sensor + tick threads).
     @Volatile private var type: ChallengeType = ChallengeType.FLIP
     @Volatile private var targetMillis: Long = 0L
+    @Volatile private var startRemainingMillis: Long = 0L
     @Volatile private var requireFaceDown: Boolean = true
     @Volatile private var motionTolerance: Float = 1.0f
     @Volatile private var shakeTarget: Int = 0
@@ -74,7 +79,8 @@ class SensorChallengeManager @Inject constructor(
         requireFaceDown: Boolean,
         motionTolerance: Float,
         shakeTarget: Int,
-        mathTotal: Int
+        mathTotal: Int,
+        elapsedMillis: Long = 0L
     ) {
         // Ensure any previous challenge is fully torn down first.
         stop()
@@ -85,6 +91,9 @@ class SensorChallengeManager @Inject constructor(
         this.motionTolerance = motionTolerance
         this.shakeTarget = shakeTarget.coerceAtLeast(1)
         this.mathTotal = mathTotal.coerceAtLeast(1)
+        // How much time is left to display; lets a cooldown resume mid-way instead of restarting.
+        this.startRemainingMillis = (this.targetMillis - elapsedMillis.coerceAtLeast(0L))
+            .coerceIn(0L, this.targetMillis)
 
         positionValid = false
         movementDetected = false
@@ -96,11 +105,11 @@ class SensorChallengeManager @Inject constructor(
             ChallengeType.FLIP -> {
                 registerAccelerometer()
                 registerGyroscope()
-                emitTimed(targetMillis, positionValid = false, complete = false)
+                emitTimed(startRemainingMillis, positionValid = false, complete = false)
                 startTimerTick()
             }
-            ChallengeType.WAIT -> {
-                emitTimed(targetMillis, positionValid = true, complete = false)
+            ChallengeType.WAIT, ChallengeType.COOLDOWN -> {
+                emitTimed(startRemainingMillis, positionValid = true, complete = false)
                 startTimerTick()
             }
             ChallengeType.SHAKE -> {
@@ -153,7 +162,7 @@ class SensorChallengeManager @Inject constructor(
 
     private fun startTimerTick() {
         tickJob = scope.launch {
-            var remaining = targetMillis
+            var remaining = startRemainingMillis
             var lastTick = SystemClock.elapsedRealtime()
             while (isActive) {
                 delay(TICK_INTERVAL_MS)
@@ -227,6 +236,8 @@ class SensorChallengeManager @Inject constructor(
             val current = _state.value
             if (current.isRunning && current.type == ChallengeType.FLIP) {
                 _state.value = current.copy(isPositionValid = valid)
+                // Buzz when the phone moves OUT of the correct position, as a nudge.
+                if (!valid) Haptics.blip(context)
             }
         }
     }
